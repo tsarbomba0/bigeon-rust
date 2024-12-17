@@ -28,7 +28,10 @@ impl Client {
 
         let server_name = String::from(server);
         let dns_name = match server_name.try_into() {
-            Ok(name) => name,
+            Ok(name) => {
+                println!("Connecting to: {:?}", name);
+                name
+            }
             Err(error) => panic!("Incorrect server address. Error: {}", error),
         };
 

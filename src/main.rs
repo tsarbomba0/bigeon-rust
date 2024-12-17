@@ -1,21 +1,25 @@
-use crate::https_client::Client;
-mod https_client;
+use crate::https::https_client::Client;
+use crate::https::request::RequestBuilder;
+mod https;
 
 fn main() {
     let mut buf = Vec::new();
-    let mut client = Client::new("www.rust-lang.org").unwrap();
-    let wr = client
-        .client_write(concat!(
-            "GET / HTTP/1.1\r\n,",
-            "Host: www.rust-lang.org\r\n",
-            "Connection: close\r\n",
-            "Accept-Encoding: identity\r\n",
-            "\r\n"
-        ))
+    let host = "www.rust-lang.org";
+    let mut client = Client::new(host).unwrap();
+    let req = RequestBuilder::new()
+        .add_header("User-Agent: Haha/0.0.1")
+        .add_header("Connection: close")
+        .add_header("Accept-Encoding: identity")
+        .set_method(https::request::HTTPMethods::GET)
+        .set_host(host)
+        .set_route("/")
+        .set_content("".to_string())
+        .build()
+        .process()
         .unwrap();
-
+    println!("{}", req);
+    let wr = client.client_write(&req).unwrap();
     println!("Written: {} bytes", wr);
     let test = client.client_read(&mut buf).unwrap();
     println!("Read: {} bytes", test);
-    println!("{}", std::str::from_utf8(&buf).unwrap());
 }
