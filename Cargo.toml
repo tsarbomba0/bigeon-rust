@@ -1,0 +1,8 @@
+[package]
+name = "bigeon-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustls = "0.23.20"
+webpki-roots = "0.26.7"
