@@ -1,8 +1,10 @@
 use crate::https::https_client::Client;
 use crate::https::request::RequestBuilder;
+use tokio::spawn;
 mod https;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let mut buf = Vec::new();
     let host = "www.rust-lang.org";
     let mut client = Client::new(host).unwrap();
@@ -18,8 +20,12 @@ fn main() {
         .process()
         .unwrap();
     println!("{}", req);
-    let wr = client.client_write(&req).unwrap();
-    println!("Written: {} bytes", wr);
-    let test = client.client_read(&mut buf).unwrap();
-    println!("Read: {} bytes", test);
+    let wr = client.client_write(&req);
+    wr.await.unwrap();
+    println!("Write!");
+
+    let test = client.client_read(&mut buf);
+    println!("Reading!");
+    test.await.unwrap();
+    println!("Read!");
 }

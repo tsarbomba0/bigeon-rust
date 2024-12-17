@@ -55,7 +55,7 @@ impl Client {
     }
 
     // Writes to the connection
-    pub fn client_write(&mut self, stuff: &str) -> Result<usize, std::io::Error> {
+    pub async fn client_write(&mut self, stuff: &str) -> Result<usize, std::io::Error> {
         let written: usize;
         loop {
             if self.rustls_client.wants_write() {
@@ -77,7 +77,7 @@ impl Client {
     }
 
     // Reads from the connection
-    pub fn client_read(&mut self, output: &mut Vec<u8>) -> Result<usize, std::io::Error> {
+    pub async fn client_read(&mut self, output: &mut Vec<u8>) -> Result<usize, std::io::Error> {
         let mut len = 0;
         loop {
             if self.rustls_client.wants_read() {
