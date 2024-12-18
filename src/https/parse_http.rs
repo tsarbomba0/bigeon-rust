@@ -9,7 +9,6 @@ pub fn parse_http(resp: &[u8]) -> Result<Response, Box<dyn std::error::Error>> {
         Ok(resp) => resp.split("\n"),
         Err(error) => return Err(error)?,
     };
-
     // Response code
     let response_code = match resp_string.next() {
         Some(value) => {

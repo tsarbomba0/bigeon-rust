@@ -21,7 +21,7 @@ pub struct Client {
 
 // Client functions.
 impl Client {
-    pub fn new(server: &str) -> Result<Self, std::io::Error> {
+    pub fn new(server: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let cfg = ClientConfig::builder()
             .with_root_certificates(RootCertStore {
                 roots: webpki_roots::TLS_SERVER_ROOTS.into(),
@@ -37,16 +37,15 @@ impl Client {
             Err(error) => panic!("Incorrect server address. Error: {}", error),
         };
 
-        let conn = match ClientConnection::new(Arc::new(cfg), dns_name) {
+        let mut conn = match ClientConnection::new(Arc::new(cfg), dns_name) {
             Ok(c) => c,
             Err(error) => {
                 panic!("Failed to create a TLS Client Connection, error: {}", error)
             }
         };
 
-        let tcp_stream = TcpStream::connect(server.to_string() + ":443").unwrap();
+        let mut tcp_stream = TcpStream::connect(server.to_string() + ":443").unwrap();
         //tcp_stream.set_nonblocking(true)?;
-
         Ok(Self {
             rustls_client: conn,
             server_name: server.to_owned(),
@@ -79,37 +78,24 @@ impl Client {
     }
 
     // Reads from the connection
-    pub fn client_read(&mut self, output: &mut Vec<u8>) -> Result<usize, std::io::Error> {
-        let mut len = 0;
+    pub fn client_read(
+        &mut self,
+        output: &mut Vec<u8>,
+    ) -> Result<usize, Box<dyn std::error::Error>> {
+        let len;
         loop {
-            if self.rustls_client.wants_read() {
-                self.rustls_client
-                    .complete_io(&mut self.tcp_stream)
-                    .unwrap();
-                match self.rustls_client.read_tls(&mut self.buf_reader) {
-                    Ok(_) => {
-                        self.rustls_client.process_new_packets().unwrap();
-                    }
-                    Err(error) => {
-                        if error.kind() != std::io::ErrorKind::WouldBlock {
-                            return Err(error);
-                        }
-                    }
-                }
-            }
-            len = match self.rustls_client.reader().read_to_end(output) {
+            self.rustls_client.complete_io(&mut self.tcp_stream)?;
+            match self.rustls_client.reader().read_to_end(output) {
                 Ok(n) => {
-                    len += n;
+                    len = n;
                     break;
                 }
                 Err(error) => {
                     if error.kind() != std::io::ErrorKind::WouldBlock {
-                        return Err(error);
-                    } else {
-                        0
+                        return Err(error)?;
                     }
                 }
-            }
+            };
         }
         Ok(len)
     }
