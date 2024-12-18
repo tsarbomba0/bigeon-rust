@@ -1,3 +1,5 @@
+use crate::https::parse_http::parse_http;
+use crate::https::response::Response;
 use rustls::ClientConfig;
 use rustls::ClientConnection;
 use rustls::RootCertStore;
@@ -77,7 +79,7 @@ impl Client {
     }
 
     // Reads from the connection
-    pub async fn client_read(&mut self, output: &mut Vec<u8>) -> Result<usize, std::io::Error> {
+    pub fn client_read(&mut self, output: &mut Vec<u8>) -> Result<usize, std::io::Error> {
         let mut len = 0;
         loop {
             if self.rustls_client.wants_read() {
@@ -110,5 +112,13 @@ impl Client {
             }
         }
         Ok(len)
+    }
+
+    pub async fn receive(
+        &mut self,
+        buf: &mut Vec<u8>,
+    ) -> Result<Response, Box<dyn std::error::Error>> {
+        self.client_read(buf)?;
+        parse_http(buf)
     }
 }

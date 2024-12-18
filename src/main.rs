@@ -5,7 +5,7 @@ mod https;
 
 #[tokio::main]
 async fn main() {
-    let mut buf = Vec::new();
+    let mut buf: Vec<u8> = vec![];
     let host = "www.rust-lang.org";
     let mut client = Client::new(host).unwrap();
     let req = RequestBuilder::new()
@@ -24,8 +24,8 @@ async fn main() {
     wr.await.unwrap();
     println!("Write!");
 
-    let test = client.client_read(&mut buf);
+    let test = client.receive(&mut buf);
     println!("Reading!");
-    test.await.unwrap();
     println!("Read!");
+    println!("{:?}", test.await.unwrap())
 }
