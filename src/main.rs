@@ -1,6 +1,7 @@
 use crate::https::https_client::Client;
 use crate::https::request::RequestBuilder;
 use tokio::spawn;
+mod discord;
 mod https;
 
 #[tokio::main]
