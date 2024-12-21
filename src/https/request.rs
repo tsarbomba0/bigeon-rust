@@ -1,5 +1,4 @@
 use std::fmt::Write;
-use std::rc::Rc;
 
 pub enum HTTPMethods {
     POST,
@@ -50,6 +49,12 @@ impl RequestBuilder {
     }
     pub fn add_header(&mut self, header: &str) -> &mut Self {
         self.headers.push(header.to_owned());
+        self
+    }
+    pub fn add_many_headers(&mut self, headers: Vec<&str>) -> &mut Self {
+        for header in headers {
+            self.headers.push(header.to_owned());
+        }
         self
     }
     pub fn set_content(&mut self, content: String) -> &mut Self {
