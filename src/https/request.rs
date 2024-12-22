@@ -51,7 +51,7 @@ impl RequestBuilder {
         self.headers.push(header.to_owned());
         self
     }
-    pub fn add_many_headers(&mut self, headers: Vec<&str>) -> &mut Self {
+    pub fn add_many_headers(&mut self, headers: &Vec<String>) -> &mut Self {
         for header in headers {
             self.headers.push(header.to_owned());
         }
@@ -97,8 +97,8 @@ impl Request {
         }
 
         if !self.content.is_empty() {
+            output.push_str("\r\n");
             output.push_str(&self.content);
-            output.push_str("\r\n\r\n");
         } else {
             output.push_str("\r\n");
         }

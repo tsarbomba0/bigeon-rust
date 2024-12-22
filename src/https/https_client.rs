@@ -3,6 +3,7 @@ use crate::https::response::Response;
 use rustls::ClientConfig;
 use rustls::ClientConnection;
 use rustls::RootCertStore;
+use rustls::DEFAULT_VERSIONS;
 use std::io::BufReader;
 use std::io::BufWriter;
 use std::io::Read;
@@ -36,7 +37,6 @@ impl Client {
             }
             Err(error) => panic!("Incorrect server address. Error: {}", error),
         };
-
         let mut conn = match ClientConnection::new(Arc::new(cfg), dns_name) {
             Ok(c) => c,
             Err(error) => {
@@ -45,7 +45,6 @@ impl Client {
         };
 
         let mut tcp_stream = TcpStream::connect(server.to_string() + ":443").unwrap();
-        //tcp_stream.set_nonblocking(true)?;
         Ok(Self {
             rustls_client: conn,
             server_name: server.to_owned(),
@@ -56,55 +55,43 @@ impl Client {
     }
 
     // Writes to the connection
-    pub async fn client_write(&mut self, stuff: &str) -> Result<usize, std::io::Error> {
-        let written: usize;
-        loop {
-            if self.rustls_client.wants_write() {
-                let mut buf = Vec::new();
-                match self.rustls_client.writer().write(stuff.as_bytes()) {
-                    Err(error) => return Err(error),
-                    Ok(n) => written = n,
-                }
-                self.rustls_client.write_tls(&mut buf)?;
-                match self.buf_writer.write_all(&buf) {
-                    Ok(_) => (),
-                    Err(error) => return Err(error),
-                }
-                self.buf_writer.flush()?;
-                break;
-            };
+    pub fn client_write(&mut self, stuff: &str) -> Result<usize, Box<dyn std::error::Error>> {
+        println!("{}", stuff);
+        let written;
+
+        match self.rustls_client.writer().write(stuff.as_bytes()) {
+            Err(error) => return Err(error)?,
+            Ok(n) => written = n,
         }
+
+        let (r, w) = self
+            .rustls_client
+            .complete_io(&mut self.tcp_stream)
+            .unwrap();
+        println!("WRITE R: {0}, W: {1}", r, w);
         Ok(written)
     }
 
-    // Reads from the connection
-    pub fn client_read(
-        &mut self,
-        output: &mut Vec<u8>,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
-        let len;
-        loop {
-            self.rustls_client.complete_io(&mut self.tcp_stream)?;
-            match self.rustls_client.reader().read_to_end(output) {
-                Ok(n) => {
-                    len = n;
-                    break;
-                }
-                Err(error) => {
-                    if error.kind() != std::io::ErrorKind::WouldBlock {
-                        return Err(error)?;
-                    }
-                }
-            };
-        }
-        Ok(len)
-    }
+    pub fn client_read(&mut self, o: &mut Vec<u8>) -> Result<usize, Box<dyn std::error::Error>> {
+        self.rustls_first_io()?;
 
-    pub async fn receive(
-        &mut self,
-        buf: &mut Vec<u8>,
-    ) -> Result<Response, Box<dyn std::error::Error>> {
-        self.client_read(buf)?;
-        parse_http(buf)
+        while self.rustls_client.wants_read() {
+            let len = self.rustls_client.read_tls(&mut self.buf_reader)?;
+            println!("length: {}", len);
+            if len == 0 {
+                break;
+            }
+        }
+        self.rustls_client.process_new_packets()?;
+        Ok(self.rustls_client.reader().read_to_end(o)?)
+    }
+    fn rustls_first_io(&mut self) -> Result<(), std::io::Error> {
+        if self.rustls_client.is_handshaking() {
+            self.rustls_client.complete_io(&mut self.tcp_stream)?;
+        };
+        if self.rustls_client.wants_write() {
+            self.rustls_client.complete_io(&mut self.tcp_stream)?;
+        };
+        Ok(())
     }
 }

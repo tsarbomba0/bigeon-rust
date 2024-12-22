@@ -16,3 +16,7 @@ impl fmt::Debug for Response {
         )
     }
 }
+
+impl Response {
+    pub from_bytes() 
+}
