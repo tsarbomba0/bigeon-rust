@@ -133,7 +133,6 @@ impl Reply for DiscordError {
 pub fn read_discord_reply(json: &str) -> Result<Box<dyn Reply>, Box<dyn std::error::Error>> {
     let msg: Box<dyn Reply>;
     let error: DiscordError;
-    println!("{}", json);
     match serde_json::from_str::<DiscordMessage>(json) {
         Ok(out) => msg = Box::new(out),
         Err(e) => {

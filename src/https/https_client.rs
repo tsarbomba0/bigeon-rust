@@ -56,7 +56,6 @@ impl Client {
 
     // Writes to the connection
     pub fn client_write(&mut self, stuff: &str) -> Result<usize, Box<dyn std::error::Error>> {
-        println!("{}", stuff);
         let written;
 
         match self.rustls_client.writer().write(stuff.as_bytes()) {
@@ -77,7 +76,6 @@ impl Client {
 
         while self.rustls_client.wants_read() {
             let len = self.rustls_client.read_tls(&mut self.buf_reader)?;
-            println!("length: {}", len);
             if len == 0 {
                 break;
             }
