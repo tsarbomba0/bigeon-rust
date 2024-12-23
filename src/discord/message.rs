@@ -1,7 +1,10 @@
+use core::fmt;
 use core::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use serde_with::{serde_as, skip_serializing_none};
+use std::error::Error;
+
 pub struct DiscordEmbed {}
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -29,7 +32,11 @@ pub struct DiscordMessage {
     poll: Option<String>, // TODO
 }
 
-impl DiscordMessage {}
+impl DiscordMessage {
+    pub fn to_vec(&self) -> Result<Vec<u8>, Box<dyn Error>> {
+        Ok(serde_json::to_vec(&self)?)
+    }
+}
 
 // Message Builder
 pub struct MessageBuilder {
@@ -97,11 +104,11 @@ enum DiscordReply {
 // Reply trait
 pub trait Reply {
     fn is_error(&self) -> bool;
-    fn to_str(&self) -> Result<String, Box<dyn std::error::Error>>;
+    fn to_str(&self) -> Result<String, Box<dyn Error>>;
 }
 
 impl Debug for dyn Reply {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_error() {
             return write!(f, "Error! ");
         } else {
@@ -111,7 +118,7 @@ impl Debug for dyn Reply {
 }
 
 impl Reply for DiscordMessage {
-    fn to_str(&self) -> Result<String, Box<dyn std::error::Error>> {
+    fn to_str(&self) -> Result<String, Box<dyn Error>> {
         let msg_json = serde_json::to_string(self)?;
         Ok(msg_json)
     }
@@ -124,21 +131,22 @@ impl Reply for DiscordError {
     fn is_error(&self) -> bool {
         true
     }
-    fn to_str(&self) -> Result<String, Box<dyn std::error::Error>> {
+    fn to_str(&self) -> Result<String, Box<dyn Error>> {
         let msg_json = serde_json::to_string(self)?;
         Ok(msg_json)
     }
 }
 
 pub fn read_discord_reply(json: &str) -> Result<Box<dyn Reply>, Box<dyn std::error::Error>> {
+    println!("{}", json);
     let msg: Box<dyn Reply>;
     let error: DiscordError;
     match serde_json::from_str::<DiscordMessage>(json) {
         Ok(out) => msg = Box::new(out),
         Err(e) => {
             if e.is_data() {
-                error = serde_json::from_str::<DiscordError>(json).unwrap();
-                return Ok(Box::new(error));
+                let d = serde_json::from_str::<DiscordError>(json).unwrap();
+                return Ok(Box::new(d));
             } else {
                 return Err(e).unwrap();
             }

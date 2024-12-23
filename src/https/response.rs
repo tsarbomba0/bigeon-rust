@@ -2,9 +2,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::str;
-
 pub struct Response<'a> {
-    pub status_code: String,
+    pub status_code: u16,
     pub headers: HashMap<Cow<'a, str>, String>,
     pub content: Vec<u8>,
 }
@@ -21,33 +20,42 @@ impl fmt::Debug for Response<'_> {
 
 impl<'a> Response<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Response<'a>, Box<dyn std::error::Error>> {
-        println!("{}", str::from_utf8(data)?);
-        let iter = data.to_vec().into_iter();
+        let data_vec = data.to_vec();
+        let mut iter = data_vec.into_iter();
 
         // booleans for parsing
         let mut cr = false;
         let mut lf = false;
         let mut second_cr = false;
-        let mut second_lf = false;
 
         // Lines
-        let mut lines_vec: Vec<Vec<u8>> = vec![Vec::new()];
-        let mut count = 0;
+        let mut lines: Vec<String> = Vec::new();
+        let mut buf: Vec<u8> = Vec::new();
+
+        // Headers
+        let mut headers: HashMap<Cow<'a, str>, String> = HashMap::new();
 
         // Content
         let mut content: Vec<u8> = Vec::new();
+
         // split bytes into lines
-        for byte in iter {
+        while let Some(byte) = iter.next() {
             match byte {
-                10 => {
-                    if lf {
-                        second_lf = true;
-                    } else {
-                        lf = true
+                b'\n' => {
+                    // break if we are on a second CR
+                    // as in \r\n\r **\n**
+                    if second_cr {
+                        break;
+                    };
+
+                    // match for earlier characters
+                    match lf {
+                        true => (),
+                        false => lf = true,
                     }
                 }
 
-                13 => {
+                b'\r' => {
                     if cr {
                         second_cr = true;
                     } else {
@@ -56,42 +64,62 @@ impl<'a> Response<'a> {
                 }
 
                 _ => {
-                    if second_lf && second_cr {
-                        content.push(byte);
-                    } else if cr && lf {
-                        lines_vec.push(Vec::new());
-                        count += 1;
-                        lines_vec[count].push(byte);
+                    if cr && lf {
+                        {
+                            lines.push(str::from_utf8(&buf)?.to_string());
+                            buf.clear();
+                        };
+                        buf.push(byte);
                         (cr, lf) = (false, false)
                     } else {
-                        lines_vec[count].push(byte)
+                        buf.push(byte);
                     }
                 }
             }
         }
 
+        // Iterator over lines
+        let mut lines_iter = lines.iter();
+
         // Status code
-        let mut lines = lines_vec.into_iter();
-        let status_code: String;
-        match &lines.next() {
-            Some(line) => status_code = str::from_utf8(&line[9..12])?.to_owned(),
+        let status_code = match &lines_iter.next() {
+            Some(line) => line[9..12].parse::<u16>()?,
             None => return Err("Empty response")?,
         };
 
-        let mut headers: HashMap<Cow<'a, str>, String> = HashMap::new();
         // Headers
-        for line in lines {
-            let mut header_iter = str::from_utf8(&line)?.split(":");
-            match header_iter.next() {
+        for line in lines_iter {
+            let mut header = line.split(":");
+            match header.next() {
                 None => break,
                 Some(field) => {
-                    let Some(value) = header_iter.next() else {
+                    let Some(value) = header.next() else {
                         return Err("Invalid header entry")?;
                     };
-                    headers.insert(Cow::Owned(field.to_string()), value.to_owned())
+                    headers.insert(Cow::Owned(field.to_string()), value.trim().to_owned())
                 }
             };
         }
+
+        // Content-Length extraction
+        // if it's not provided, it's going to be set to -1
+        match headers.get("Content-Length") {
+            Some(length) => {
+                let content_length = length.parse::<usize>()?;
+                for byte in iter {
+                    content.push(byte);
+                    if content.len() == content_length {
+                        break;
+                    }
+                }
+            }
+            None => {
+                for byte in iter {
+                    content.push(byte)
+                }
+            }
+        };
+
         Ok(Response {
             status_code,
             headers,

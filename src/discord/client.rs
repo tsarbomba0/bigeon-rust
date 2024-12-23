@@ -39,16 +39,16 @@ impl DiscordClient {
             .set_host("discord.com")
             .add_many_headers(&self.base_headers)
             .add_header("Content-Length: 18")
-            .set_content(msg.to_str().unwrap().as_bytes())
+            .set_content(&msg.to_vec()?)
             .build();
 
         self.conn.client_write(&req)?;
-        println!("{}", str::from_utf8(&req)?);
-        let l = self.conn.client_read(&mut buf)?;
-        println!("Read: {}", l);
+
+        self.conn.client_read(&mut buf)?;
+
         let response = Response::from_bytes(&buf)?;
         let resp = str::from_utf8(&response.content)?;
-        println!("{}", resp);
+
         let a = read_discord_reply(resp)?;
         Ok(a)
     }

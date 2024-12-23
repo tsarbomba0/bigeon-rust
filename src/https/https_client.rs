@@ -63,8 +63,6 @@ impl Client {
         }
 
         self.rustls_client.complete_io(&mut self.tcp_stream)?;
-        println!("Length: {}", stuff.len());
-        println!("Written (TLS): {}", written);
         Ok(written)
     }
 
