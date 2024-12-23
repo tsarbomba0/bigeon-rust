@@ -1,9 +1,7 @@
-use crate::https::parse_http::parse_http;
-use crate::https::response::Response;
+//use crate::https::response::Response;
 use rustls::ClientConfig;
 use rustls::ClientConnection;
 use rustls::RootCertStore;
-use rustls::DEFAULT_VERSIONS;
 use std::io::BufReader;
 use std::io::BufWriter;
 use std::io::Read;
@@ -37,14 +35,14 @@ impl Client {
             }
             Err(error) => panic!("Incorrect server address. Error: {}", error),
         };
-        let mut conn = match ClientConnection::new(Arc::new(cfg), dns_name) {
+        let conn = match ClientConnection::new(Arc::new(cfg), dns_name) {
             Ok(c) => c,
             Err(error) => {
                 panic!("Failed to create a TLS Client Connection, error: {}", error)
             }
         };
 
-        let mut tcp_stream = TcpStream::connect(server.to_string() + ":443").unwrap();
+        let tcp_stream = TcpStream::connect(server.to_string() + ":443").unwrap();
         Ok(Self {
             rustls_client: conn,
             server_name: server.to_owned(),
@@ -55,19 +53,18 @@ impl Client {
     }
 
     // Writes to the connection
-    pub fn client_write(&mut self, stuff: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    pub fn client_write(&mut self, stuff: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
         let written;
+        self.rustls_first_io()?;
 
-        match self.rustls_client.writer().write(stuff.as_bytes()) {
+        match self.rustls_client.writer().write(stuff) {
             Err(error) => return Err(error)?,
             Ok(n) => written = n,
         }
 
-        let (r, w) = self
-            .rustls_client
-            .complete_io(&mut self.tcp_stream)
-            .unwrap();
-        println!("WRITE R: {0}, W: {1}", r, w);
+        self.rustls_client.complete_io(&mut self.tcp_stream)?;
+        println!("Length: {}", stuff.len());
+        println!("Written (TLS): {}", written);
         Ok(written)
     }
 

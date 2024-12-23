@@ -3,6 +3,7 @@ use crate::discord::message::{
 };
 use crate::https::https_client::Client;
 use crate::https::request::{HTTPMethods, Request, RequestBuilder};
+use crate::https::response::Response;
 use std::str;
 
 pub struct DiscordClient {
@@ -17,8 +18,8 @@ impl DiscordClient {
             "User-Agent: DiscordBot (none, 0.0.1) Bigeon".to_string(),
             "Content-Type: application/json".to_string(),
         ];
-
-        base_headers.push(format!("Authorization: Bot {}", token));
+        let auth = format!("Authorization: Bot {}", token);
+        base_headers.push(auth);
 
         Self {
             base_headers: base_headers.to_owned(),
@@ -32,20 +33,23 @@ impl DiscordClient {
         channel_id: &str,
     ) -> Result<Box<dyn Reply>, Box<dyn std::error::Error>> {
         let mut buf = Vec::new();
-        let request = RequestBuilder::new()
+        let req = RequestBuilder::new()
             .set_method(HTTPMethods::POST)
             .set_route(&format!("/api/v10/channels/{}/messages", channel_id))
             .set_host("discord.com")
             .add_many_headers(&self.base_headers)
-            .set_content(msg.to_str().unwrap())
-            .build()
-            .process()
-            .unwrap();
+            .add_header("Content-Length: 18")
+            .set_content(msg.to_str().unwrap().as_bytes())
+            .build();
 
-        self.conn.client_write(&request).unwrap();
-        let l = self.conn.client_read(&mut buf).unwrap();
+        self.conn.client_write(&req)?;
+        println!("{}", str::from_utf8(&req)?);
+        let l = self.conn.client_read(&mut buf)?;
         println!("Read: {}", l);
-        let a = read_discord_reply(str::from_utf8(&buf).unwrap());
-        a
+        let response = Response::from_bytes(&buf)?;
+        let resp = str::from_utf8(&response.content)?;
+        println!("{}", resp);
+        let a = read_discord_reply(resp)?;
+        Ok(a)
     }
 }

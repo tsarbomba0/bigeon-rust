@@ -137,10 +137,10 @@ pub fn read_discord_reply(json: &str) -> Result<Box<dyn Reply>, Box<dyn std::err
         Ok(out) => msg = Box::new(out),
         Err(e) => {
             if e.is_data() {
-                error = serde_json::from_str::<DiscordError>(json)?;
+                error = serde_json::from_str::<DiscordError>(json).unwrap();
                 return Ok(Box::new(error));
             } else {
-                return Err(e)?;
+                return Err(e).unwrap();
             }
         }
     };

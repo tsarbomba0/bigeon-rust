@@ -1,15 +1,13 @@
-use crate::discord::{client, message};
-use crate::https::https_client::Client;
-use crate::https::request::RequestBuilder;
+use crate::discord::message;
 use discord::client::DiscordClient;
-use discord::message::DiscordMessage;
-use discord::message::Reply;
-use tokio::spawn;
 mod discord;
 mod https;
+use std::env;
 
 fn main() {
-    let mut client = DiscordClient::new("");
+    let args: Vec<String> = env::args().collect();
+
+    let mut client = DiscordClient::new(args.get(1).unwrap());
 
     let msg = message::MessageBuilder::new()
         .content("Welcome from Rust!")

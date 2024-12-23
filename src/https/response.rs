@@ -1,25 +1,28 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
+use std::str;
 
-pub struct Response {
-    pub status_code: u16,
-    pub headers: HashMap<String, String>,
-    pub content: String,
+pub struct Response<'a> {
+    pub status_code: String,
+    pub headers: HashMap<Cow<'a, str>, String>,
+    pub content: Vec<u8>,
 }
 
-impl fmt::Debug for Response {
+impl fmt::Debug for Response<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Response {{\nstatus_code: {0},\nheaders:{1:#?},\ncontent:{2}\n}}",
+            "Response {{\nstatus_code: {0},\nheaders:{1:#?},\ncontent:{2:?}\n}}",
             self.status_code, self.headers, self.content
         )
     }
 }
 
-impl Response {
-    pub fn from_bytes(data: &[u8]) -> Result<Response, Box<dyn std::error::Error>> {
-        let mut iter = data.iter();
+impl<'a> Response<'a> {
+    pub fn from_bytes(data: &'a [u8]) -> Result<Response<'a>, Box<dyn std::error::Error>> {
+        println!("{}", str::from_utf8(data)?);
+        let iter = data.to_vec().into_iter();
 
         // booleans for parsing
         let mut cr = false;
@@ -27,43 +30,72 @@ impl Response {
         let mut second_cr = false;
         let mut second_lf = false;
 
-        // Buffer for content of the response
-        let content_buf: Vec<u8>;
-
         // Lines
-        let lines: Vec<&str>;
-        // Buffer for bytes
-        let buf: Vec<u8>;
+        let mut lines_vec: Vec<Vec<u8>> = vec![Vec::new()];
+        let mut count = 0;
 
+        // Content
+        let mut content: Vec<u8> = Vec::new();
+        // split bytes into lines
         for byte in iter {
             match byte {
-                // Carriage return
-                13 => {
-                    if cr {
-                        second_cr = true;
-                    } else {
-                        cr = true
-                    }
-                }
-                // Line feed
                 10 => {
                     if lf {
                         second_lf = true;
                     } else {
-                        lf = true;
+                        lf = true
                     }
                 }
+
+                13 => {
+                    if cr {
+                        second_cr = true;
+                    } else {
+                        cr = true;
+                    }
+                }
+
                 _ => {
-                    if cr && lf {
-                        lines.push(std::str::from_utf8(&buf)?);
-                        buf.clear();
+                    if second_lf && second_cr {
+                        content.push(byte);
+                    } else if cr && lf {
+                        lines_vec.push(Vec::new());
+                        count += 1;
+                        lines_vec[count].push(byte);
                         (cr, lf) = (false, false)
                     } else {
-                        buf.push(byte.to_owned())
+                        lines_vec[count].push(byte)
                     }
                 }
             }
         }
-        Ok(Response {})
+
+        // Status code
+        let mut lines = lines_vec.into_iter();
+        let status_code: String;
+        match &lines.next() {
+            Some(line) => status_code = str::from_utf8(&line[9..12])?.to_owned(),
+            None => return Err("Empty response")?,
+        };
+
+        let mut headers: HashMap<Cow<'a, str>, String> = HashMap::new();
+        // Headers
+        for line in lines {
+            let mut header_iter = str::from_utf8(&line)?.split(":");
+            match header_iter.next() {
+                None => break,
+                Some(field) => {
+                    let Some(value) = header_iter.next() else {
+                        return Err("Invalid header entry")?;
+                    };
+                    headers.insert(Cow::Owned(field.to_string()), value.to_owned())
+                }
+            };
+        }
+        Ok(Response {
+            status_code,
+            headers,
+            content,
+        })
     }
 }
