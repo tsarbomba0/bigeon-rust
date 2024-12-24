@@ -2,7 +2,7 @@ use crate::discord::message::{
     read_discord_reply, DiscordEmbed, DiscordError, DiscordMessage, MessageBuilder, Reply,
 };
 use crate::https::https_client::Client;
-use crate::https::request::{HTTPMethods, Request, RequestBuilder};
+use crate::https::request::{HTTPMethods, RequestBuilder};
 use crate::https::response::Response;
 use std::str;
 
@@ -35,21 +35,18 @@ impl DiscordClient {
         let mut buf = Vec::new();
         let req = RequestBuilder::new()
             .set_method(HTTPMethods::POST)
-            .set_route(&format!("/api/v10/channels/{}/messages", channel_id))
-            .set_host("discord.com")
+            .set_host(&self.conn.server_name)
             .add_many_headers(&self.base_headers)
-            .add_header("Content-Length: 18")
+            .set_route(&format!("/api/v10/channels/{}/messages", channel_id))
             .set_content(&msg.to_vec()?)
             .build();
 
         self.conn.client_write(&req)?;
-
         self.conn.client_read(&mut buf)?;
 
-        let response = Response::from_bytes(&buf)?;
-        let resp = str::from_utf8(&response.content)?;
+        let http_response = Response::from_bytes(&buf)?;
+        let discord_response = str::from_utf8(&http_response.content)?;
 
-        let a = read_discord_reply(resp)?;
-        Ok(a)
+        read_discord_reply(discord_response)
     }
 }

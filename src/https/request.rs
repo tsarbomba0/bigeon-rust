@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 pub enum HTTPMethods {
     POST,
     HEAD,
@@ -6,21 +7,13 @@ pub enum HTTPMethods {
     DELETE,
 }
 
-pub struct Request {
-    method: String,
-    route: String,
-    host: String,
-    pub headers: Vec<String>,
-    pub content: String,
-}
-
 pub struct RequestBuilder<'a> {
     method: HTTPMethods,
     route: Option<&'a str>,
     host: Option<&'a str>,
     pub headers: Vec<&'a str>,
     pub content: Option<&'a [u8]>,
-    buffer: Vec<u8>,
+    content_len: usize,
 }
 
 impl<'a> RequestBuilder<'a> {
@@ -31,7 +24,7 @@ impl<'a> RequestBuilder<'a> {
             host: None,
             headers: Vec::new(),
             content: None,
-            buffer: Vec::new(),
+            content_len: 0,
         }
     }
 
@@ -59,6 +52,7 @@ impl<'a> RequestBuilder<'a> {
     }
     pub fn set_content(&mut self, content: &'a [u8]) -> &mut Self {
         self.content = Some(content);
+        self.content_len = content.len();
         self
     }
     fn crlf(&mut self, buf: &mut Vec<u8>) {
@@ -93,14 +87,16 @@ impl<'a> RequestBuilder<'a> {
             buf.extend_from_slice(header.as_bytes());
             buf.extend_from_slice(&[13, 10]);
         }
+        // content length header
+        buf.extend_from_slice(format!("Content-Length: {}", self.content_len).as_bytes());
+        self.crlf(&mut buf);
 
         // Content
         self.crlf(&mut buf);
-        match self.content {
-            Some(v) => buf.extend_from_slice(v),
-            None => (),
-        };
 
+        if let Some(v) = self.content {
+            buf.extend_from_slice(v);
+        };
         buf
     }
 }

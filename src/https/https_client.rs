@@ -11,9 +11,10 @@ use std::sync::Arc;
 
 // Client struct
 pub struct Client {
-    server_name: String,
+    pub(crate) server_name: String,
     rustls_client: ClientConnection,
     buf_reader: BufReader<TcpStream>,
+    #[allow(dead_code)]
     buf_writer: BufWriter<TcpStream>,
     tcp_stream: TcpStream,
 }
@@ -30,7 +31,7 @@ impl Client {
         let server_name = String::from(server);
         let dns_name = match server_name.try_into() {
             Ok(name) => {
-                println!("Connecting to: {:?}", name);
+                println!("Connecting to: {}", server);
                 name
             }
             Err(error) => panic!("Incorrect server address. Error: {}", error),
@@ -54,13 +55,12 @@ impl Client {
 
     // Writes to the connection
     pub fn client_write(&mut self, stuff: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
-        let written;
         self.rustls_first_io()?;
 
-        match self.rustls_client.writer().write(stuff) {
+        let written = match self.rustls_client.writer().write(stuff) {
             Err(error) => return Err(error)?,
-            Ok(n) => written = n,
-        }
+            Ok(n) => n,
+        };
 
         self.rustls_client.complete_io(&mut self.tcp_stream)?;
         Ok(written)
@@ -68,14 +68,13 @@ impl Client {
 
     pub fn client_read(&mut self, o: &mut Vec<u8>) -> Result<usize, Box<dyn std::error::Error>> {
         self.rustls_first_io()?;
-
         while self.rustls_client.wants_read() {
             let len = self.rustls_client.read_tls(&mut self.buf_reader)?;
+            self.rustls_client.process_new_packets()?;
             if len == 0 {
                 break;
             }
         }
-        self.rustls_client.process_new_packets()?;
         Ok(self.rustls_client.reader().read_to_end(o)?)
     }
     fn rustls_first_io(&mut self) -> Result<(), std::io::Error> {

@@ -110,9 +110,9 @@ pub trait Reply {
 impl Debug for dyn Reply {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_error() {
-            return write!(f, "Error! ");
+            return write!(f, "DiscordError");
         } else {
-            return write!(f, "Works! ");
+            return write!(f, "DiscordMessage");
         }
     }
 }

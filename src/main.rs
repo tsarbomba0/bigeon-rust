@@ -14,5 +14,5 @@ fn main() {
         .build();
 
     let response = client.send_message(msg, "1296137217604849704");
-    println!("{:?}", response.unwrap())
+    println!("Done!")
 }
