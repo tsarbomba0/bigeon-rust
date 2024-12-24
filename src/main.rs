@@ -3,6 +3,7 @@ use discord::client::DiscordClient;
 mod discord;
 mod https;
 use std::env;
+mod minecraft;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
