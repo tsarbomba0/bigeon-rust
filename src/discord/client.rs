@@ -46,7 +46,7 @@ impl DiscordClient {
 
         let http_response = Response::from_bytes(&buf)?;
         let discord_response = str::from_utf8(&http_response.content)?;
-
+        println!("{}", discord_response);
         read_discord_reply(discord_response)
     }
 }

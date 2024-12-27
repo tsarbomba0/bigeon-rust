@@ -1,10 +1,10 @@
 use crate::https::https_client::Client;
 use crate::https::request::{HTTPMethods, RequestBuilder};
 use crate::https::response::Response;
+use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::error::Error;
-
 // This region is used to handle Xbox Live requests and responses.
 // from this we will be able to get a XL token and a Userhash.
 //
@@ -29,6 +29,7 @@ struct XLR_Properties<'a> {
 // Implements a function to serialize a request into Vec<u8>
 impl<'a> XboxLiveRequest<'a> {
     pub fn new(token: &str) -> Vec<u8> {
+        info!("Created a XboxLive request.");
         let props = XLR_Properties {
             AuthMethod: "RPS",
             SiteName: "user.auth.xboxlive.com",
@@ -91,6 +92,7 @@ struct XSTSRequest {
 
 impl XSTSRequest {
     pub fn new(xbl_token: &str) -> Vec<u8> {
+        info!("Created a XSTS Request.");
         let req = XSTSRequest {
             Properties: XSTSReqProperties {
                 SandboxId: "RETAIL",
@@ -123,6 +125,7 @@ struct MCLoginResponse {
 
 impl MCLogin {
     pub fn new(uh: &str, xsts_token: &str) -> Vec<u8> {
+        info!("Created a Minecraft Login request.");
         serde_json::to_vec(&MCLogin {
             identityToken: format!("XBL3.0 x={0};{1}", uh, xsts_token),
         })
@@ -161,6 +164,7 @@ struct MCProfile {
 }
 
 pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String), Box<dyn Error>> {
+    info!("Started login process!");
     let mut client = Client::new("user.auth.xboxlive.com")?;
     let mut buf = Vec::new();
     let mut response: Response;
@@ -170,10 +174,12 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
         .set_host("user.auth.xboxlive.com")
         .set_content(&XboxLiveRequest::new(access_token))
         .build();
-
+    println!("Request: {}", std::str::from_utf8(&req)?);
     buf.clear();
     client.client_write(&req)?;
+
     client.client_read(&mut buf)?;
+    info!("Sent XboxLive request to the API.");
 
     response = Response::from_bytes(&buf)?;
     let xl_response = serde_json::from_slice::<XboxLiveResponse>(&response.content)?;
