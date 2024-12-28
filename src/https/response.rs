@@ -1,7 +1,10 @@
+use log::debug;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::SubAssign;
 use std::str;
+
 pub struct Response<'a> {
     pub status_code: u16,
     pub headers: HashMap<Cow<'a, str>, String>,
@@ -21,8 +24,7 @@ impl fmt::Debug for Response<'_> {
 impl<'a> Response<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Response<'a>, Box<dyn std::error::Error>> {
         let data_vec = data.to_vec();
-        let mut iter = data_vec.into_iter();
-
+        let mut iter = data_vec.iter();
         // booleans for parsing
         let mut cr = false;
         let mut lf = false;
@@ -69,10 +71,10 @@ impl<'a> Response<'a> {
                             lines.push(str::from_utf8(&buf)?.to_string());
                             buf.clear();
                         };
-                        buf.push(byte);
+                        buf.push(*byte);
                         (cr, lf) = (false, false)
                     } else {
-                        buf.push(byte);
+                        buf.push(*byte);
                     }
                 }
             }
@@ -101,24 +103,80 @@ impl<'a> Response<'a> {
             };
         }
 
-        // Content-Length extraction
-        // if it's not provided, it's going to be set to -1
-        match headers.get("Content-Length") {
+        let content_len = match headers.get("Content-Length") {
             Some(length) => {
                 let content_length = length.parse::<usize>()?;
-                for byte in iter {
-                    content.push(byte);
+                for byte in iter.by_ref() {
+                    content.push(*byte);
                     if content.len() == content_length {
                         break;
                     }
                 }
+                Some(content.len())
             }
-            None => {
-                for byte in iter {
-                    content.push(byte)
+            None => None,
+        };
+
+        let mut transfer_encoding = "none";
+        if content_len.is_none() {
+            match headers.get("Transfer-Encoding") {
+                None => {
+                    debug!("Can't determine length of content, reading everything.");
+                    for byte in iter.by_ref() {
+                        content.push(*byte)
+                    }
+                    return Ok(Response {
+                        status_code,
+                        headers,
+                        content,
+                    });
+                }
+                Some(v) => transfer_encoding = v.as_str(),
+            }
+        }
+
+        match transfer_encoding {
+            "chunked" => {
+                let mut data_read = false;
+                let mut length_read = true;
+                let mut read_length = 0;
+
+                let mut len = content.len();
+                let mut buf = Vec::new();
+
+                while let Some(byte) = iter.next() {
+                    if data_read {
+                        if len + read_length == content.len() {
+                            data_read = false;
+                            iter.nth(0);
+                            len = content.len();
+                            dbg!(len);
+                        } else {
+                            content.push(*byte)
+                        }
+                    }
+                    if length_read {
+                        match byte {
+                            b'\r' => {
+                                iter.nth(0);
+                                length_read = false;
+                                data_read = true;
+                                read_length = usize::from_str_radix(str::from_utf8(&buf)?, 16)?;
+                                dbg!(read_length);
+                                if read_length == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {
+                                buf.push(*byte);
+                            }
+                        }
+                    }
                 }
             }
-        };
+            "none" => (),
+            _ => unimplemented!(),
+        }
 
         Ok(Response {
             status_code,

@@ -32,7 +32,7 @@ impl DiscordClient {
         msg: DiscordMessage,
         channel_id: &str,
     ) -> Result<Box<dyn Reply>, Box<dyn std::error::Error>> {
-        let mut buf = Vec::new();
+        let mut buf: [u8; 4096] = [0; 4096];
         let req = RequestBuilder::new()
             .set_method(HTTPMethods::POST)
             .set_host(&self.conn.server_name)
@@ -42,9 +42,11 @@ impl DiscordClient {
             .build();
 
         self.conn.client_write(&req)?;
-        self.conn.client_read(&mut buf)?;
+        let len = self.conn.client_read(&mut buf)?;
+        println!("\n{}", str::from_utf8(&buf[0..len - 1])?);
+        let http_response = Response::from_bytes(&buf[0..len - 1])?;
+        //println!("{:?}", http_response);
 
-        let http_response = Response::from_bytes(&buf)?;
         let discord_response = str::from_utf8(&http_response.content)?;
         println!("{}", discord_response);
         read_discord_reply(discord_response)

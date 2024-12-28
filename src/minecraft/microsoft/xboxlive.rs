@@ -1,6 +1,7 @@
 use crate::https::https_client::Client;
 use crate::https::request::{HTTPMethods, RequestBuilder};
 use crate::https::response::Response;
+use log::debug;
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -42,7 +43,7 @@ impl<'a> XboxLiveRequest<'a> {
             TokenType: "JWT",
         };
 
-        serde_json::to_vec(&req).unwrap()
+        serde_json::to_vec_pretty(&req).unwrap()
     }
 }
 
@@ -166,37 +167,40 @@ struct MCProfile {
 pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String), Box<dyn Error>> {
     info!("Started login process!");
     let mut client = Client::new("user.auth.xboxlive.com")?;
-    let mut buf = Vec::new();
+    let mut buf: [u8; 4096] = [0; 4096];
     let mut response: Response;
     let mut req = RequestBuilder::new()
         .set_method(HTTPMethods::POST)
         .set_route("/user/authenticate")
         .set_host("user.auth.xboxlive.com")
+        .add_header("User-Agent: bigeon/0.0.1")
+        .add_header("Accept: application/json")
+        .add_header("Content-Type: application/json")
         .set_content(&XboxLiveRequest::new(access_token))
         .build();
-    println!("Request: {}", std::str::from_utf8(&req)?);
-    buf.clear();
+    debug!("Request: {:?}", std::str::from_utf8(&req)?);
     client.client_write(&req)?;
 
-    client.client_read(&mut buf)?;
+    let mut len = client.client_read(&mut buf)?;
     info!("Sent XboxLive request to the API.");
-
-    response = Response::from_bytes(&buf)?;
+    debug!("Request: {}", std::str::from_utf8(&buf[0..len - 1])?);
+    response = Response::from_bytes(&buf[0..len - 1])?;
     let xl_response = serde_json::from_slice::<XboxLiveResponse>(&response.content)?;
 
     client = Client::new("xsts.auth.xboxlive.com")?;
     req = RequestBuilder::new()
         .set_method(HTTPMethods::POST)
         .set_route("/xsts/authorize")
+        .add_header("Accept: application/json")
+        .add_header("Content-Type: application/json")
         .set_host("xsts.auth.xboxlive.com")
         .set_content(&XSTSRequest::new(&xl_response.Token))
         .build();
 
-    buf.clear();
     client.client_write(&req)?;
-    client.client_read(&mut buf)?;
+    len = client.client_read(&mut buf)?;
 
-    response = Response::from_bytes(&buf)?;
+    response = Response::from_bytes(&buf[0..len - 1])?;
     let xsts_response = serde_json::from_slice::<XboxLiveResponse>(&response.content)?;
     let (xsts_token, userhash) = (xsts_response.Token, &xsts_response.DisplayClaims.xui[0].uhs);
 
@@ -205,14 +209,15 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
         .set_method(HTTPMethods::POST)
         .set_route("/authentication/login_with_xbox")
         .set_host("api.minecraftservices.com")
+        .add_header("Accept: application/json")
+        .add_header("Content-Type: application/json")
         .set_content(&MCLogin::new(userhash, &xsts_token))
         .build();
 
-    buf.clear();
     client.client_write(&req)?;
-    client.client_read(&mut buf)?;
+    len = client.client_read(&mut buf)?;
 
-    response = Response::from_bytes(&buf)?;
+    response = Response::from_bytes(&buf[0..len - 1])?;
     let mc_response = serde_json::from_slice::<MCLoginResponse>(&response.content)?;
 
     let jwt = mc_response.access_token;
@@ -220,15 +225,16 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
     req = RequestBuilder::new()
         .set_method(HTTPMethods::GET)
         .add_header(&format!("Authorization: Bearer {}", jwt))
+        .add_header("Content-Type: application/json")
+        .add_header("Accept: application/json")
         .set_route("/minecraft/profile")
         .set_host("api.minecraftservices.com")
         .build();
 
-    buf.clear();
     client.client_write(&req)?;
-    client.client_read(&mut buf)?;
+    len = client.client_read(&mut buf)?;
 
-    response = Response::from_bytes(&buf)?;
+    response = Response::from_bytes(&buf[0..len - 1])?;
     let mc_profile = serde_json::from_slice::<MCProfile>(&response.content)?;
     Ok((jwt, mc_profile.id, mc_profile.name))
 }

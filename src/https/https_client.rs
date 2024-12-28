@@ -71,15 +71,20 @@ impl Client {
     }
 
     // Reads from the connection
-    pub fn client_read(&mut self, o: &mut Vec<u8>) -> Result<usize, Box<dyn Error>> {
+    pub fn client_read(&mut self, o: &mut [u8]) -> Result<usize, Box<dyn Error>> {
+        if self.rustls_client.wants_write() {
+            self.buf_complete_io()?;
+        }
+        if self.rustls_client.is_handshaking() {
+            self.buf_complete_io()?;
+        }
+
         while self.rustls_client.wants_read() {
             if self.buf_complete_io()?.0 == 0 {
                 break;
             }
         }
-
-        let len = self.rustls_client.reader().read_to_end(o)?;
-        Ok(len)
+        Ok(self.rustls_client.reader().read(o)?)
     }
 
     // implemntation of rustls' complete_io using buffered io.
