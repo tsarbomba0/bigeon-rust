@@ -1,4 +1,4 @@
-//use crate::https::response::Response;
+use super::response::Response;
 use log::debug;
 use rustls::ClientConfig;
 use rustls::ClientConnection;
@@ -85,6 +85,18 @@ impl Client {
             }
         }
         Ok(self.rustls_client.reader().read(o)?)
+    }
+
+    // this sends a singular request and closes the connection.
+    // buffer of 8kb
+    pub fn request(url: &str, req: &[u8]) -> Result<Response, Box<dyn Error>> {
+        let mut buf: [u8; 8192] = [0; 8192];
+        let mut client = Client::new(url)?;
+
+        let _ = client.client_write(req)?;
+        let len = client.client_read(&mut buf)?;
+
+        Response::from_bytes(&buf[0..len])
     }
 
     // implemntation of rustls' complete_io using buffered io.

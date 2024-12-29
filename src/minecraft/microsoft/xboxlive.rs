@@ -43,7 +43,7 @@ impl<'a> XboxLiveRequest<'a> {
             TokenType: "JWT",
         };
 
-        serde_json::to_vec_pretty(&req).unwrap()
+        serde_json::to_vec(&req).unwrap()
     }
 }
 
@@ -183,8 +183,9 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
 
     let mut len = client.client_read(&mut buf)?;
     info!("Sent XboxLive request to the API.");
-    debug!("Request: {}", std::str::from_utf8(&buf[0..len - 1])?);
     response = Response::from_bytes(&buf[0..len - 1])?;
+    println!("{:?}", response);
+
     let xl_response = serde_json::from_slice::<XboxLiveResponse>(&response.content)?;
 
     client = Client::new("xsts.auth.xboxlive.com")?;

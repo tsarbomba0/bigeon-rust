@@ -4,6 +4,7 @@ mod discord;
 mod https;
 
 use minecraft::microsoft::oauth2::get_oauth2_code;
+use minecraft::microsoft::oauth2::MsTokenResponse;
 use minecraft::microsoft::xboxlive::login_to_minecraft;
 mod minecraft;
 
@@ -37,7 +38,7 @@ fn main() {
 
     cl.send_message(message, "1296137217604849704").unwrap();
 
-    let code = get_oauth2_code().unwrap();
-    let (jwl, uuid, name) = login_to_minecraft(&code).unwrap();
+    let token_struct = get_oauth2_code().unwrap();
+    let (jwl, uuid, name) = login_to_minecraft(&token_struct.access_token).unwrap();
     println!("JWL: {}, UUID: {}, NAME: {}", jwl, uuid, name);
 }

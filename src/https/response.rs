@@ -1,17 +1,15 @@
 use log::debug;
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::SubAssign;
 use std::str;
 
-pub struct Response<'a> {
+pub struct Response {
     pub status_code: u16,
-    pub headers: HashMap<Cow<'a, str>, String>,
+    pub headers: HashMap<String, String>,
     pub content: Vec<u8>,
 }
 
-impl fmt::Debug for Response<'_> {
+impl fmt::Debug for Response {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -21,8 +19,8 @@ impl fmt::Debug for Response<'_> {
     }
 }
 
-impl<'a> Response<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Response<'a>, Box<dyn std::error::Error>> {
+impl Response {
+    pub fn from_bytes(data: &[u8]) -> Result<Response, Box<dyn std::error::Error>> {
         let data_vec = data.to_vec();
         let mut iter = data_vec.iter();
         // booleans for parsing
@@ -35,7 +33,7 @@ impl<'a> Response<'a> {
         let mut buf: Vec<u8> = Vec::new();
 
         // Headers
-        let mut headers: HashMap<Cow<'a, str>, String> = HashMap::new();
+        let mut headers: HashMap<String, String> = HashMap::new();
 
         // Content
         let mut content: Vec<u8> = Vec::new();
@@ -98,7 +96,7 @@ impl<'a> Response<'a> {
                     let Some(value) = header.next() else {
                         return Err("Invalid header entry")?;
                     };
-                    headers.insert(Cow::Owned(field.to_string()), value.trim().to_owned())
+                    headers.insert(field.to_string(), value.trim().to_string())
                 }
             };
         }

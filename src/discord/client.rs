@@ -43,12 +43,8 @@ impl DiscordClient {
 
         self.conn.client_write(&req)?;
         let len = self.conn.client_read(&mut buf)?;
-        println!("\n{}", str::from_utf8(&buf[0..len - 1])?);
-        let http_response = Response::from_bytes(&buf[0..len - 1])?;
-        //println!("{:?}", http_response);
-
+        let http_response = Response::from_bytes(&buf[0..len])?;
         let discord_response = str::from_utf8(&http_response.content)?;
-        println!("{}", discord_response);
         read_discord_reply(discord_response)
     }
 }
