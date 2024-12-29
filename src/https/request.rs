@@ -80,21 +80,19 @@ impl<'a> RequestBuilder<'a> {
 
         // Host
         buf.extend_from_slice(format!("Host: {}", self.host.unwrap()).as_bytes());
-        self.crlf(&mut buf);
 
         // Headers
         for header in &mut *self.headers {
-            buf.extend_from_slice(header.as_bytes());
             buf.extend_from_slice(&[13, 10]);
+            buf.extend_from_slice(header.as_bytes());
         }
-        // content length header
-        buf.extend_from_slice(format!("Content-Length: {}", self.content_len).as_bytes());
-        self.crlf(&mut buf);
 
         // Content
-        self.crlf(&mut buf);
-
         if let Some(v) = self.content {
+            self.crlf(&mut buf);
+            buf.extend_from_slice(format!("Content-Length: {}", self.content_len).as_bytes());
+            self.crlf(&mut buf);
+            self.crlf(&mut buf);
             buf.extend_from_slice(v);
         };
         buf

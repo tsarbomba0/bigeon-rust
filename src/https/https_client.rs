@@ -55,6 +55,15 @@ impl Client {
         })
     }
 
+    // destroys the client
+    pub fn destroy(mut self) -> Result<(), Box<dyn Error>> {
+        self.rustls_client.send_close_notify();
+        self.rustls_client.write_tls(&mut self.buf_writer)?;
+        self.buf_writer.flush()?;
+        self.tcp_stream.shutdown(std::net::Shutdown::Both)?;
+        Ok(())
+    }
+
     // Writes to the connection
     pub fn client_write(&mut self, stuff: &[u8]) -> Result<usize, Box<dyn Error>> {
         self.buf_complete_io()?;
@@ -95,7 +104,7 @@ impl Client {
 
         let _ = client.client_write(req)?;
         let len = client.client_read(&mut buf)?;
-
+        client.destroy()?;
         Response::from_bytes(&buf[0..len])
     }
 
@@ -157,7 +166,12 @@ impl Client {
 
             // process new packets
             match self.rustls_client.process_new_packets() {
-                Ok(iostate) => debug!("{:?}", iostate),
+                Ok(iostate) => {
+                    debug!("{:?}", iostate);
+                    if iostate.peer_has_closed() {
+                        self.tcp_stream.shutdown(std::net::Shutdown::Both)?;
+                    }
+                }
                 Err(e) => return Err(e)?,
             }
 

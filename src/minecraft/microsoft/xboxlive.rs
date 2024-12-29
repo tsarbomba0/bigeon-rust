@@ -169,6 +169,8 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
     let mut client = Client::new("user.auth.xboxlive.com")?;
     let mut buf: [u8; 4096] = [0; 4096];
     let mut response: Response;
+
+    // xboxlive
     let mut req = RequestBuilder::new()
         .set_method(HTTPMethods::POST)
         .set_route("/user/authenticate")
@@ -178,16 +180,17 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
         .add_header("Content-Type: application/json")
         .set_content(&XboxLiveRequest::new(access_token))
         .build();
-    debug!("Request: {:?}", std::str::from_utf8(&req)?);
-    client.client_write(&req)?;
 
+    client.client_write(&req)?;
     let mut len = client.client_read(&mut buf)?;
+    client.destroy()?;
+
     info!("Sent XboxLive request to the API.");
-    response = Response::from_bytes(&buf[0..len - 1])?;
-    println!("{:?}", response);
+    response = Response::from_bytes(&buf[0..len])?;
 
     let xl_response = serde_json::from_slice::<XboxLiveResponse>(&response.content)?;
 
+    // xsts
     client = Client::new("xsts.auth.xboxlive.com")?;
     req = RequestBuilder::new()
         .set_method(HTTPMethods::POST)
@@ -200,29 +203,28 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
 
     client.client_write(&req)?;
     len = client.client_read(&mut buf)?;
+    client.destroy()?;
 
-    response = Response::from_bytes(&buf[0..len - 1])?;
+    response = Response::from_bytes(&buf[0..len])?;
     let xsts_response = serde_json::from_slice::<XboxLiveResponse>(&response.content)?;
     let (xsts_token, userhash) = (xsts_response.Token, &xsts_response.DisplayClaims.xui[0].uhs);
 
-    client = Client::new("api.minecraftservices.com")?;
+    // login with xbox -> minecraft
     req = RequestBuilder::new()
         .set_method(HTTPMethods::POST)
         .set_route("/authentication/login_with_xbox")
         .set_host("api.minecraftservices.com")
         .add_header("Accept: application/json")
         .add_header("Content-Type: application/json")
+        .add_header("Connection: keep-alive")
         .set_content(&MCLogin::new(userhash, &xsts_token))
         .build();
 
-    client.client_write(&req)?;
-    len = client.client_read(&mut buf)?;
-
-    response = Response::from_bytes(&buf[0..len - 1])?;
+    response = Client::request("api.minecraftservices.com", &req)?;
     let mc_response = serde_json::from_slice::<MCLoginResponse>(&response.content)?;
-
     let jwt = mc_response.access_token;
 
+    // get minecraft profile
     req = RequestBuilder::new()
         .set_method(HTTPMethods::GET)
         .add_header(&format!("Authorization: Bearer {}", jwt))
@@ -232,10 +234,8 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
         .set_host("api.minecraftservices.com")
         .build();
 
-    client.client_write(&req)?;
-    len = client.client_read(&mut buf)?;
-
-    response = Response::from_bytes(&buf[0..len - 1])?;
+    println!("{:?}", std::str::from_utf8(&req)?);
+    response = Client::request("api.minecraftservices.com", &req)?;
     let mc_profile = serde_json::from_slice::<MCProfile>(&response.content)?;
     Ok((jwt, mc_profile.id, mc_profile.name))
 }

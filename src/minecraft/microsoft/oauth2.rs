@@ -33,7 +33,6 @@ pub fn get_oauth2_code() -> Result<MsTokenResponse, Box<dyn Error>> {
     let mut f = File::open("oauth2.json")?;
     let mut data = vec![];
     f.read_to_end(&mut data)?;
-    println!("{}", str::from_utf8(&data)?);
     let settings = serde_json::from_slice::<Oauth2Settings>(&data)?;
     info!("Read Oauth2 settings from oauth2.json");
 
