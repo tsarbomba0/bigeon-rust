@@ -3,9 +3,9 @@ use log::debug;
 use rustls::ClientConfig;
 use rustls::ClientConnection;
 use rustls::RootCertStore;
-use std::error::Error;
 use std::io::BufReader;
 use std::io::BufWriter;
+use std::io::Error;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
@@ -23,7 +23,7 @@ pub struct Client {
 
 // Client functions.
 impl Client {
-    pub fn new(server: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn new(server: &str) -> Result<Self, Error> {
         let cfg = ClientConfig::builder()
             .with_root_certificates(RootCertStore {
                 roots: webpki_roots::TLS_SERVER_ROOTS.into(),
@@ -45,7 +45,7 @@ impl Client {
             }
         };
 
-        let tcp_stream = TcpStream::connect(server.to_string() + ":443").unwrap();
+        let tcp_stream = TcpStream::connect(server.to_string() + ":443")?;
         Ok(Self {
             rustls_client: conn,
             server_name: server.to_owned(),
@@ -56,7 +56,7 @@ impl Client {
     }
 
     // destroys the client
-    pub fn destroy(mut self) -> Result<(), Box<dyn Error>> {
+    pub fn destroy(mut self) -> Result<(), Error> {
         self.rustls_client.send_close_notify();
         self.rustls_client.write_tls(&mut self.buf_writer)?;
         self.buf_writer.flush()?;
@@ -65,9 +65,8 @@ impl Client {
     }
 
     // Writes to the connection
-    pub fn client_write(&mut self, stuff: &[u8]) -> Result<usize, Box<dyn Error>> {
+    pub fn client_write(&mut self, stuff: &[u8]) -> Result<usize, Error> {
         self.buf_complete_io()?;
-        println!("{}", std::str::from_utf8(stuff)?);
 
         let written = match self.rustls_client.writer().write(stuff) {
             Err(error) => return Err(error)?,
@@ -80,37 +79,42 @@ impl Client {
     }
 
     // Reads from the connection
-    pub fn client_read(&mut self, o: &mut [u8]) -> Result<usize, Box<dyn Error>> {
+    pub fn client_read(&mut self, o: &mut [u8]) -> Result<usize, Error> {
         if self.rustls_client.wants_write() {
-            self.buf_complete_io()?;
+            self.buf_complete_io().unwrap();
         }
         if self.rustls_client.is_handshaking() {
-            self.buf_complete_io()?;
+            self.buf_complete_io().unwrap();
         }
 
         while self.rustls_client.wants_read() {
-            if self.buf_complete_io()?.0 == 0 {
+            if self.buf_complete_io().unwrap().0 == 0 {
                 break;
             }
         }
-        Ok(self.rustls_client.reader().read(o)?)
+
+        self.rustls_client.reader().read(o)
     }
 
     // this sends a singular request and closes the connection.
     // buffer of 8kb
-    pub fn request(url: &str, req: &[u8]) -> Result<Response, Box<dyn Error>> {
+    pub fn request(url: &str, req: &[u8]) -> Result<Response, Error> {
         let mut buf: [u8; 8192] = [0; 8192];
         let mut client = Client::new(url)?;
 
         let _ = client.client_write(req)?;
-        let len = client.client_read(&mut buf)?;
+        match client.client_read(&mut buf) {
+            Ok(_) => (),
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => (),
+            Err(e) => return Err(e),
+        }
         client.destroy()?;
-        Response::from_bytes(&buf[0..len])
+        Response::from_bytes(&buf)
     }
 
     // implemntation of rustls' complete_io using buffered io.
     // ugh
-    fn buf_complete_io(&mut self) -> Result<(usize, usize), Box<dyn Error>> {
+    fn buf_complete_io(&mut self) -> Result<(usize, usize), Error> {
         let mut eof = false;
         let mut read = 0;
         let mut write = 0;
@@ -126,7 +130,7 @@ impl Client {
             while self.rustls_client.wants_write() {
                 match self.rustls_client.write_tls(&mut self.buf_writer)? {
                     0 => {
-                        self.buf_writer.flush()?;
+                        self.buf_writer.flush().unwrap();
                         return Ok((read, write));
                     }
                     n => {
@@ -157,7 +161,15 @@ impl Client {
                         debug!("ErrorKind: Interrupted");
                         None
                     }
-                    Err(e) => return Err(e)?,
+                    Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
+                        debug!("ErrorKind: UnexpectedEof");
+                        eof = true;
+                        Some(0)
+                    }
+                    Err(e) => {
+                        debug!("{}", e.kind());
+                        return Err(e)?;
+                    }
                 };
                 if r.is_some() {
                     break;
@@ -169,10 +181,10 @@ impl Client {
                 Ok(iostate) => {
                     debug!("{:?}", iostate);
                     if iostate.peer_has_closed() {
-                        self.tcp_stream.shutdown(std::net::Shutdown::Both)?;
+                        self.tcp_stream.shutdown(std::net::Shutdown::Write)?;
                     }
                 }
-                Err(e) => return Err(e)?,
+                Err(e) => return Err(Error::new(ErrorKind::Interrupted, e.to_string())),
             }
 
             // If we are currently not handshaking, were handshaking in the past, and want to write.
@@ -186,7 +198,12 @@ impl Client {
             match (eof, handshake, self.rustls_client.is_handshaking()) {
                 (_, true, false) => return Ok((read, write)),
                 (_, false, _) => return Ok((read, write)),
-                (true, true, true) => return Err("Shit went down.")?,
+                (true, true, true) => {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        "EOF and handshaking at the same time.",
+                    ))
+                }
                 (..) => {
                     dbg!((eof, handshake, self.rustls_client.is_handshaking()))
                 }

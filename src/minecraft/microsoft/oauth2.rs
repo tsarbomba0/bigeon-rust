@@ -103,7 +103,7 @@ pub fn get_oauth2_code() -> Result<MsTokenResponse, Box<dyn Error>> {
         .set_content(&access_token_post_form.into_bytes())
         .build();
 
-    let response = Client::request("login.microsoftonline.com", &req)?;
+    let response = Client::request("login.microsoftonline.com", &req).unwrap();
     println!("{}", std::str::from_utf8(&response.content)?);
     let token_struct = serde_json::from_slice::<MsTokenResponse>(&response.content)?;
 

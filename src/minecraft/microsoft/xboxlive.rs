@@ -221,6 +221,7 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
         .build();
 
     response = Client::request("api.minecraftservices.com", &req)?;
+
     let mc_response = serde_json::from_slice::<MCLoginResponse>(&response.content)?;
     let jwt = mc_response.access_token;
 
@@ -234,7 +235,6 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
         .set_host("api.minecraftservices.com")
         .build();
 
-    println!("{:?}", std::str::from_utf8(&req)?);
     response = Client::request("api.minecraftservices.com", &req)?;
     let mc_profile = serde_json::from_slice::<MCProfile>(&response.content)?;
     Ok((jwt, mc_profile.id, mc_profile.name))
