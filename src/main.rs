@@ -2,10 +2,12 @@ use discord::client::DiscordClient;
 use discord::message::MessageBuilder;
 mod discord;
 mod https;
+mod microsoft;
+mod tls;
 
-use minecraft::microsoft::oauth2::get_oauth2_code;
-use minecraft::microsoft::oauth2::MsTokenResponse;
-use minecraft::microsoft::xboxlive::login_to_minecraft;
+use microsoft::oauth2::get_oauth2_code;
+use microsoft::xboxlive::login_to_minecraft;
+
 mod minecraft;
 
 use log::{Level, LevelFilter, Metadata, Record};

@@ -1,16 +1,18 @@
-use crate::https::https_client::Client;
-use crate::https::request::{HTTPMethods, RequestBuilder};
+use crate::https::client::{HttpsClient, Methods};
+use crate::https::request::RequestBuilder;
+use crate::https::response::Response;
 use log::info;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::net::TcpListener;
 use std::str;
 
-const ACCESS_TOKEN_ROUTE: &str = "/consumers/oauth2/v2.0/token";
+const ACCESS_TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 
 #[derive(Deserialize)]
 struct Oauth2Settings {
@@ -94,17 +96,19 @@ pub fn get_oauth2_code() -> Result<MsTokenResponse, Box<dyn Error>> {
     // post form with our obtained code
     let access_token_post_form: String  = format!("client_id={}&scope=XboxLive.signin&redirect_uri=http://localhost:6636&grant_type=authorization_code&code={}&client_secret={}", settings.client_id, code, settings.client_secret);
     info!("Obtained code! Getting the access token");
-    println!("t: {}", access_token_post_form);
-    let req = RequestBuilder::new()
-        .add_header("Content-Type: application/x-www-form-urlencoded")
-        .set_route(ACCESS_TOKEN_ROUTE)
-        .set_method(HTTPMethods::POST)
-        .set_host("login.microsoftonline.com")
-        .set_content(&access_token_post_form.into_bytes())
-        .build();
 
-    let response = Client::request("login.microsoftonline.com", &req).unwrap();
-    println!("{}", std::str::from_utf8(&response.content)?);
+    let client = HttpsClient::new("Bigeon/0.0.2", None);
+    let headers: HashMap<&str, &str> = HashMap::new();
+    headers.insert("Content-Type", "application/x-www-form-urlencoded");
+
+    let req = RequestBuilder::new()
+        .http_method(Methods::POST)
+        .host("login.microsoftonline.com")
+        .content(access_token_post_form.into_bytes())
+        .headers(&headers)
+        .build();
+    let bytes = client.post(ACCESS_TOKEN_URL, req, Some(headers)).unwrap();
+    let response = Response::from_slice(&bytes).unwrap();
     let token_struct = serde_json::from_slice::<MsTokenResponse>(&response.content)?;
 
     info!("Obtained Access token!");

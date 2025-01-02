@@ -1,205 +1,181 @@
+use bytes::{Bytes, BytesMut};
 use log::{debug, info, warn};
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::error;
 use std::fmt;
-use std::io::Error;
-use std::io::ErrorKind;
-use std::rc::Rc;
+use std::num::ParseIntError;
 use std::str;
+use std::str::Utf8Error;
 
-fn read_chunk_length(buf: &[u8]) -> Result<usize, Error> {
+#[derive(Debug)]
+pub enum HttpResponseError {
+    Empty,
+    ParseStrError(Utf8Error),
+    ParseError(ParseIntError),
+    NoHeaders,
+    InvalidHeader,
+}
+
+impl fmt::Display for HttpResponseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            HttpResponseError::Empty => write!(f, "the given byte slice was empty"),
+            HttpResponseError::ParseError(..) => {
+                write!(f, "there was a error during parsing a number")
+            }
+            HttpResponseError::ParseStrError(..) => {
+                write!(f, "there was an error with parsing a string")
+            }
+            HttpResponseError::NoHeaders => {
+                write!(f, "no headers were found")
+            }
+            HttpResponseError::InvalidHeader => {
+                write!(f, "invalid header")
+            }
+        }
+    }
+}
+
+impl error::Error for HttpResponseError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match *self {
+            HttpResponseError::Empty => None,
+            HttpResponseError::ParseError(ref e) => Some(e),
+            HttpResponseError::ParseStrError(ref e) => Some(e),
+            HttpResponseError::NoHeaders => None,
+            HttpResponseError::InvalidHeader => None,
+        }
+    }
+}
+
+pub type HttpResult<T> = Result<T, HttpResponseError>;
+pub type HeaderMap<'r> = HashMap<&'r str, &'r str>;
+
+fn read_chunk_length(buf: &[u8]) -> HttpResult<usize> {
     let str = match str::from_utf8(buf) {
         Ok(o) => o,
-        Err(_) => return Err(Error::from(ErrorKind::InvalidInput)),
+        Err(e) => return Err(HttpResponseError::ParseStrError(e)),
     };
     match usize::from_str_radix(str, 16) {
         Ok(num) => Ok(num),
-        Err(_) => Err(Error::from(ErrorKind::InvalidInput)),
+        Err(e) => Err(HttpResponseError::ParseError(e)),
     }
 }
 
-pub struct Response {
+#[derive(Debug)]
+pub struct Response<'r> {
     pub status_code: u16,
-    pub headers: HashMap<String, String>,
-    pub content: Vec<u8>,
+    pub headers: HeaderMap<'r>,
+    pub content: Bytes,
 }
 
-impl fmt::Debug for Response {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Response {{    \nstatus_code: {0},    \nheaders:{1:#?},    \ncontent:{2:?}\n}}",
-            self.status_code, self.headers, self.content
-        )
-    }
-}
+impl<'r> Response<'r> {
+    pub fn from_slice(d: &'r [u8]) -> HttpResult<Self> {
+        if d.is_empty() {
+            return Err(HttpResponseError::Empty);
+        };
 
-impl Response {
-    pub fn from_bytes(data: &[u8]) -> Result<Response, Error> {
-        let mut iter = data.iter();
-        // booleans for parsing
-        let mut cr = false;
-        let mut lf = false;
-        let mut second_cr = false;
+        let mut headers: HashMap<&'r str, &'r str> = HashMap::new();
 
-        // lines
-        let mut lines: Vec<String> = Vec::new();
-        let buf: Rc<RefCell<Vec<u8>>> = Rc::new(RefCell::new(Vec::new()));
+        let mut iter = d.iter();
 
-        // headers
-        let mut headers: HashMap<String, String> = HashMap::new();
+        // loop to split into lines
+        let mut lines: Vec<&'r str> = Vec::with_capacity(10);
+        let mut line_break = false;
+        let mut count = 0;
+        let mut t_count: usize = 0;
 
-        // content
-        let mut content: Vec<u8> = Vec::new();
-
-        // split bytes into lines
         while let Some(byte) = iter.next() {
             match byte {
-                // line feed/newline
-                b'\n' => {
-                    // break if we are on a second CR
-                    // as in \r\n\r **\n**
-                    if second_cr {
-                        // this ensures we put the last line to our lines vector
-                        let rc_buf = buf.borrow();
-                        let line = match str::from_utf8(&rc_buf) {
-                            Ok(str) => Some(str),
-                            Err(_) => {
-                                warn!("Incorrect UTF-8 in header!");
-                                None
-                            }
-                        };
-
-                        if let Some(l) = line {
-                            lines.push(l.to_string());
-                        };
-                        break;
-                    };
-
-                    // match for earlier characters
-                    match lf {
-                        true => (),
-                        false => lf = true,
+                b'\r' => {
+                    if iter.next().is_some_and(|v| v == &b'\n') {
+                        line_break = true;
+                        count += 2;
+                        continue;
                     }
                 }
-
-                // carriage return
-                b'\r' => match cr {
-                    true => second_cr = true,
-                    false => cr = true,
-                },
-
-                // any other character
                 _ => {
-                    if cr && lf {
-                        let mut rc_buf = buf.borrow_mut();
-                        let line = match str::from_utf8(&rc_buf) {
-                            Ok(str) => Some(str),
-                            Err(_) => {
-                                warn!("Incorrect UTF-8 in header!");
-                                None
-                            }
+                    if line_break {
+                        let line = match str::from_utf8(&d[t_count..t_count + count - 2]) {
+                            Ok(o) => o,
+                            Err(e) => return Err(HttpResponseError::ParseStrError(e)),
                         };
-
-                        if let Some(l) = line {
-                            lines.push(l.to_string());
-                        };
-                        rc_buf.clear();
-                        rc_buf.push(*byte);
-                        (cr, lf) = (false, false)
-                    } else {
-                        buf.borrow_mut().push(*byte);
-                    }
+                        lines.push(line);
+                        line_break = false;
+                        t_count += count;
+                        count = 0;
+                    };
+                    count += 1
                 }
             }
         }
 
-        // iterator over lines
-        let mut lines_iter = lines.iter();
+        let mut lines_iter = lines.into_iter();
 
-        // Status code
-        let status_code = match &lines_iter.next() {
+        // status code
+        let status_code = match lines_iter.next() {
             Some(line) => match line[9..12].parse::<u16>() {
                 Ok(str) => str,
-                Err(_) => return Err(Error::from(ErrorKind::InvalidData)),
+                Err(e) => return Err(HttpResponseError::ParseError(e)),
             },
-            None => return Err(Error::from(ErrorKind::UnexpectedEof)),
+            None => return Err(HttpResponseError::Empty),
         };
 
-        // Headers
+        // headers
         for line in lines_iter {
-            let mut header = line.split(":");
+            let mut header = line.split(": ");
             match header.next() {
-                None => break,
-                Some(field) => {
-                    let Some(value) = header.next() else {
-                        warn!("Incorrect header, skipping it.");
-                        continue;
-                    };
-                    headers.insert(field.to_string(), value.trim().to_string())
+                None => return Err(HttpResponseError::NoHeaders),
+                Some(k) => {
+                    if let Some(v) = header.next() {
+                        headers.insert(k, v);
+                    } else {
+                        return Err(HttpResponseError::InvalidHeader);
+                    }
                 }
-            };
+            }
         }
 
         // content length
         let content_len = match headers.get("Content-Length") {
-            Some(length) => {
-                let content_length = match length.parse::<usize>() {
-                    Ok(o) => o,
-                    Err(_) => return Err(Error::from(ErrorKind::InvalidData)),
-                };
-
-                for byte in iter.as_ref() {
-                    content.push(*byte);
-                    if content.len() == content_length {
-                        break;
-                    }
-                }
-                Some(content.len())
-            }
-            None => {
-                info!("No Content-Length header present!");
-                None
-            }
+            Some(l) => match l.parse::<usize>() {
+                Ok(n) => Some(n),
+                Err(e) => return Err(HttpResponseError::ParseError(e)),
+            },
+            None => None,
         };
 
         // transfer encoding
-        let mut transfer_encoding = "none";
-        if content_len.is_none() {
+        let mut transfer_encoding = None;
+        if let Some(len) = content_len {
+            return Ok(Self {
+                status_code,
+                headers,
+                content: Bytes::copy_from_slice(&d[t_count..t_count + len]),
+            });
+        } else {
             match headers.get("Transfer-Encoding") {
                 None => {
-                    warn!("Can't determine length of content, reading everything.");
-                    for byte in iter.by_ref() {
-                        content.push(*byte)
-                    }
-                    return Ok(Response {
-                        status_code,
-                        headers,
-                        content,
-                    });
+                    warn!("No Content-Length and Transfer-Encoding found! Reading everything");
                 }
-                Some(v) => transfer_encoding = v.as_str(),
+                Some(v) => transfer_encoding = Some(*v),
             }
-        }
+        };
+
         match transfer_encoding {
-            "chunked" => {
+            Some("chunked") => {
                 let mut data_read = false;
                 let mut length_read = true;
                 let mut read_length = 0;
-
-                let mut len = content.len();
-                let mut buf = Vec::new();
+                let mut l_count = 0;
+                let mut c_buf = BytesMut::with_capacity(368);
+                t_count += 2;
 
                 while let Some(byte) = iter.next() {
                     if data_read {
-                        if len + read_length == content.len() {
-                            data_read = false;
-                            iter.nth(0);
-                            len = content.len();
-                            dbg!(len);
-                        } else {
-                            content.push(*byte)
-                        }
+                        c_buf.extend_from_slice(&d[0..1 + read_length]);
+                        t_count += read_length + 2;
+                        data_read = false;
                     }
                     if length_read {
                         match byte {
@@ -207,27 +183,36 @@ impl Response {
                                 iter.nth(0);
                                 length_read = false;
                                 data_read = true;
-                                read_length = read_chunk_length(&buf)?;
+
+                                read_length = read_chunk_length(&d[t_count..t_count + l_count])?;
+                                l_count = 0;
+
                                 debug!("Chunk length: {}", read_length);
+
                                 if read_length == 0 {
                                     break;
                                 }
                             }
                             _ => {
-                                buf.push(*byte);
+                                l_count += 1;
+                                continue;
                             }
                         }
                     }
                 }
-            }
-            "none" => (),
-            _ => unimplemented!(),
-        }
 
-        Ok(Response {
-            status_code,
-            headers,
-            content,
-        })
+                Ok(Self {
+                    status_code,
+                    headers,
+                    content: c_buf.freeze(),
+                })
+            }
+            Some(_) => unimplemented!(),
+            None => Ok(Self {
+                status_code,
+                headers,
+                content: Bytes::copy_from_slice(&d[t_count..]),
+            }),
+        }
     }
 }

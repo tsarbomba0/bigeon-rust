@@ -1,100 +1,97 @@
-#[allow(dead_code)]
-pub enum HTTPMethods {
-    POST,
-    HEAD,
-    GET,
-    PUT,
-    DELETE,
-}
+use crate::https::client::Methods;
+use std::collections::HashMap;
+
+const CRLF: &[u8] = "\r\n".as_bytes();
 
 pub struct RequestBuilder<'a> {
-    method: HTTPMethods,
+    method: Option<Methods>,
     route: Option<&'a str>,
-    host: Option<&'a str>,
-    pub headers: Vec<&'a str>,
-    pub content: Option<&'a [u8]>,
+    headers: HashMap<&'a str, &'a str>,
+    content: Option<Vec<u8>>,
     content_len: usize,
 }
 
 impl<'a> RequestBuilder<'a> {
     pub fn new() -> Self {
         Self {
-            method: HTTPMethods::GET,
+            method: None,
             route: None,
-            host: None,
-            headers: Vec::new(),
+            headers: HashMap::new(),
             content: None,
             content_len: 0,
         }
     }
+    pub fn http_method(&mut self, m: Methods) -> &mut Self {
+        self.method = Some(m);
+        self
+    }
+    pub fn headers(&mut self, h: &HashMap<&'a str, &'a str>) -> &mut Self {
+        let add_headers = &h;
+        self.headers
+            .extend(add_headers.iter().map(|(k, v)| (*k, *v)));
+        self
+    }
+    pub fn host(&mut self, ht: &'a str) -> &mut Self {
+        self.headers.insert("Host", ht);
+        self
+    }
+    pub fn content(&mut self, c: Vec<u8>) -> &mut Self {
+        self.content_len = c.len();
+        self.content = Some(c);
+        self
+    }
+    pub fn route(&mut self, r: &'a str) -> &mut Self {
+        self.route = Some(r);
+        self
+    }
 
-    pub fn set_method(&mut self, method: HTTPMethods) -> &mut Self {
-        self.method = method;
-        self
-    }
-    pub fn set_route(&mut self, route: &'a str) -> &mut Self {
-        self.route = Some(route);
-        self
-    }
-    pub fn set_host(&mut self, host: &'a str) -> &mut Self {
-        self.host = Some(host);
-        self
-    }
-    pub fn add_header(&mut self, header: &'a str) -> &mut Self {
-        self.headers.push(header);
-        self
-    }
-    pub fn add_many_headers(&mut self, headers: &'a Vec<String>) -> &mut Self {
-        for header in headers {
-            self.headers.push(header);
-        }
-        self
-    }
-    pub fn set_content(&mut self, content: &'a [u8]) -> &mut Self {
-        self.content = Some(content);
-        self.content_len = content.len();
-        self
-    }
-    fn crlf(&mut self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&[13, 10]);
-    }
-    pub fn build(&mut self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        // Method and white space
-        match self.method {
-            HTTPMethods::POST => buf.extend_from_slice(&[80, 79, 83, 84]),
-            HTTPMethods::PUT => buf.extend_from_slice(&[72, 69, 65, 68]),
-            HTTPMethods::GET => buf.extend_from_slice(&[71, 69, 84]),
-            HTTPMethods::DELETE => buf.extend_from_slice(&[80, 85, 84]),
-            HTTPMethods::HEAD => buf.extend_from_slice(&[68, 69, 76, 69, 84, 69]),
+    pub fn build(self) -> Vec<u8> {
+        let mut buf = vec![];
+        let method = match self.method {
+            None => Methods::GET,
+            Some(m) => m,
+        };
+
+        let b_method = match method {
+            Methods::GET => "GET".as_bytes(),
+            Methods::POST => "POST".as_bytes(),
+            Methods::PATCH => "PATCH".as_bytes(),
+            Methods::OPTIONS => "OPTIONS".as_bytes(),
+            Methods::CONNECT => "CONNECT".as_bytes(),
+            Methods::HEAD => "HEAD".as_bytes(),
+            Methods::PUT => "PUT".as_bytes(),
+            Methods::DELETE => "DELETE".as_bytes(),
+        };
+
+        buf.extend_from_slice(b_method);
+        buf.extend_from_slice(&[32]);
+
+        // route
+        match self.route {
+            Some(r) => buf.extend_from_slice(r.as_bytes()),
+            None => buf.extend_from_slice(r"\".as_bytes()),
         };
         buf.push(32);
 
-        // Route and white space
-        buf.extend_from_slice(self.route.unwrap().as_bytes());
-        buf.push(32);
+        buf.extend_from_slice("HTTP/1.1".as_bytes());
+        buf.extend_from_slice(CRLF);
 
-        // HTTP/1.1 and white space
-        buf.extend_from_slice(&[72, 84, 84, 80, 47, 49, 46, 49]);
-        self.crlf(&mut buf);
-
-        // Host
-        buf.extend_from_slice(format!("Host: {}", self.host.unwrap()).as_bytes());
-
-        // Headers
-        for header in &mut *self.headers {
-            buf.extend_from_slice(&[13, 10]);
-            buf.extend_from_slice(header.as_bytes());
+        for (k, v) in self.headers {
+            buf.extend_from_slice(k.as_bytes());
+            buf.extend_from_slice(": ".as_bytes());
+            buf.extend_from_slice(v.as_bytes());
+            buf.extend_from_slice(CRLF);
         }
+        buf.extend_from_slice(CRLF);
 
-        // Content
-        if let Some(v) = self.content {
-            self.crlf(&mut buf);
-            buf.extend_from_slice(format!("Content-Length: {}", self.content_len).as_bytes());
-            self.crlf(&mut buf);
-            self.crlf(&mut buf);
-            buf.extend_from_slice(v);
-        };
+        // Content-Length and Content
+        if self.content_len > 0 {
+            buf.extend_from_slice("Content-Length: ".as_bytes());
+            buf.extend_from_slice(format!("{}\r\n", self.content_len).as_bytes());
+            if let Some(c) = self.content {
+                buf.extend_from_slice(&c);
+            };
+        }
         buf
     }
 }

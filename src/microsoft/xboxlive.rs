@@ -1,5 +1,6 @@
-use crate::https::https_client::Client;
-use crate::https::request::{HTTPMethods, RequestBuilder};
+use crate::https::client::Client;
+use crate::https::persistent_client::PersistentClient;
+use crate::https::request::RequestBuilder;
 use crate::https::response::Response;
 use log::debug;
 use log::info;
@@ -209,6 +210,7 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
     let xsts_response = serde_json::from_slice::<XboxLiveResponse>(&response.content)?;
     let (xsts_token, userhash) = (xsts_response.Token, &xsts_response.DisplayClaims.xui[0].uhs);
 
+    client = Client::new("api.minecraftservices.com")?;
     // login with xbox -> minecraft
     req = RequestBuilder::new()
         .set_method(HTTPMethods::POST)
@@ -220,11 +222,14 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
         .set_content(&MCLogin::new(userhash, &xsts_token))
         .build();
 
-    response = Client::request("api.minecraftservices.com", &req)?;
+    client.client_write(&req)?;
+    client.client_read(&mut buf)?;
+    response = Response::from_bytes(&buf)?;
 
     let mc_response = serde_json::from_slice::<MCLoginResponse>(&response.content)?;
     let jwt = mc_response.access_token;
 
+    info!("Fetching minecraft profile!");
     // get minecraft profile
     req = RequestBuilder::new()
         .set_method(HTTPMethods::GET)
@@ -234,8 +239,13 @@ pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String)
         .set_route("/minecraft/profile")
         .set_host("api.minecraftservices.com")
         .build();
-
-    response = Client::request("api.minecraftservices.com", &req)?;
+    debug!("Request built!");
+    let wrlen = client.client_write(&req)?;
+    dbg!(wrlen);
+    let len = client.client_read(&mut buf)?;
+    dbg!(len);
+    println!("{}", std::str::from_utf8(&buf)?);
+    response = Response::from_bytes(&buf)?;
     let mc_profile = serde_json::from_slice::<MCProfile>(&response.content)?;
     Ok((jwt, mc_profile.id, mc_profile.name))
 }
