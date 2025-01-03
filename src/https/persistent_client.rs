@@ -1,68 +1,58 @@
 use super::client::Methods;
 use super::request::RequestBuilder;
-use super::response::Response;
-use super::url::Url;
+use super::url::{Url, UrlError};
+use crate::https::canbeclient::CanBeClient;
 use crate::tls::tls_stream::TlsStream;
 use std::collections::HashMap;
-use std::io::{Error, ErrorKind, Read, Write};
+use std::io::{Error, Read, Write};
 
-type HeaderMap<'p> = HashMap<&'p str, &'p str>;
-type OptHeaders<'p> = Option<HeaderMap<'p>>;
 type TLSResult<T> = Result<T, Error>;
-
+type HeaderMap<'a> = HashMap<&'a str, String>;
 pub struct PersistentClient<'p> {
     io: TlsStream,
     head: HeaderMap<'p>,
 }
 
 impl<'p> PersistentClient<'p> {
-    pub fn new(a: &'p str, eh: OptHeaders<'p>, url: &'p str) -> TLSResult<Self> {
-        let mut head: HeaderMap<'p> = HashMap::new();
+    pub fn new(a: &'p str, url: &'p str) -> TLSResult<Self> {
         let p_url = Url::new(url).unwrap();
-        head.insert("User-Agent", a);
-        if let Some(h) = eh {
-            head.extend(h.iter())
-        };
 
         Ok(Self {
             io: TlsStream::new(None, p_url.domain(), &p_url.socket_addr())?,
-            head,
+            head: HashMap::from_iter(vec![("User-Agent", a.to_string())]),
         })
     }
 
-    pub fn request(
-        &mut self,
-        m: Methods,
-        url: &'p str,
-        content: Option<Vec<u8>>,
-        extra_headers: Option<HeaderMap<'p>>,
-    ) -> TLSResult<Vec<u8>> {
-        let mut req = RequestBuilder::new();
-        let split_url = match Url::new(url) {
-            Ok(u) => u,
-            Err(e) => return Err(Error::new(ErrorKind::InvalidData, e.to_string())),
-        };
+    pub fn default_headers(&mut self, headers: HashMap<&'p str, String>) {
+        for (k, v) in headers.into_iter() {
+            self.head.insert(k, v);
+        }
+    }
 
-        req.http_method(m)
-            .headers(&self.head)
-            .route(split_url.route())
-            .host(split_url.domain());
+    pub fn io_write(&mut self, buf: &[u8]) -> TLSResult<usize> {
+        self.io.write(buf)
+    }
 
-        if let Some(c) = content {
-            req.content(c);
-        };
-        if let Some(h) = extra_headers {
-            req.headers(&h);
-        };
-
-        let b_req = req.build();
+    pub fn io_read(&mut self) -> TLSResult<Vec<u8>> {
         let mut buf = vec![];
-        let _ = self.io.write(&b_req);
-        let _ = self.io.read_to_end(&mut buf);
+        self.io.read_to_end(&mut buf)?;
         Ok(buf)
     }
 
-    pub fn get(&mut self, url: &'p str, headers: Option<HeaderMap<'p>>) -> TLSResult<Vec<u8>> {
-        self.request(Methods::GET, url, None, headers)
+    pub fn get(&'p mut self, url: &'p str) -> Result<RequestBuilder<'p>, UrlError> {
+        self.request(Methods::GET, url)
+    }
+
+    pub fn post(&'p mut self, url: &'p str) -> Result<RequestBuilder<'p>, UrlError> {
+        self.request(Methods::POST, url)
+    }
+}
+
+impl CanBeClient<'_> for PersistentClient<'_> {
+    fn request<'a>(&'a mut self, m: Methods, url: &'a str) -> Result<RequestBuilder<'a>, UrlError> {
+        let p_url = Url::new(url)?;
+        let req = RequestBuilder::new(p_url);
+
+        Ok(req.http_method(m).headers(&self.head))
     }
 }

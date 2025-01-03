@@ -1,3 +1,4 @@
+pub mod canbeclient;
 pub mod client;
 pub mod persistent_client;
 pub mod request;

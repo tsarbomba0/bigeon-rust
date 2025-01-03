@@ -1,16 +1,17 @@
-use crate::https::client::Client;
+use crate::https::client::HttpsClient;
 use crate::https::persistent_client::PersistentClient;
-use crate::https::request::RequestBuilder;
 use crate::https::response::Response;
 use log::debug;
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::collections::HashMap;
 use std::error::Error;
 // This region is used to handle Xbox Live requests and responses.
 // from this we will be able to get a XL token and a Userhash.
 //
 
+const USER_AGENT: &str = "bigeon/0.0.2";
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
 #[derive(Deserialize, Serialize)]
@@ -166,86 +167,74 @@ struct MCProfile {
 }
 
 pub fn login_to_minecraft(access_token: &str) -> Result<(String, String, String), Box<dyn Error>> {
+    // headers to say we want json data and send json data
+    let json_headers = vec![
+        ("Accept", "application/json"),
+        ("Content-Type", "application/json"),
+    ]
+    .into_iter()
+    .collect::<HashMap<&str, &str>>();
     info!("Started login process!");
-    let mut client = Client::new("user.auth.xboxlive.com")?;
-    let mut buf: [u8; 4096] = [0; 4096];
+
+    // client and response
+    let mut client = HttpsClient::new(USER_AGENT, Some(&json_headers));
     let mut response: Response;
 
     // xboxlive
-    let mut req = RequestBuilder::new()
-        .set_method(HTTPMethods::POST)
-        .set_route("/user/authenticate")
-        .set_host("user.auth.xboxlive.com")
-        .add_header("User-Agent: bigeon/0.0.1")
-        .add_header("Accept: application/json")
-        .add_header("Content-Type: application/json")
-        .set_content(&XboxLiveRequest::new(access_token))
-        .build();
-
-    client.client_write(&req)?;
-    let mut len = client.client_read(&mut buf)?;
-    client.destroy()?;
-
+    let reply = client.post(
+        "https://user.auth.xboxlive.com/user/authenticate",
+        XboxLiveRequest::new(access_token),
+        None,
+    )?.;
+    response = Response::from_slice(&reply)?;
     info!("Sent XboxLive request to the API.");
-    response = Response::from_bytes(&buf[0..len])?;
-
     let xl_response = serde_json::from_slice::<XboxLiveResponse>(&response.content)?;
+    info!("Received reply from XboxLive!");
+    drop(reply);
 
     // xsts
-    client = Client::new("xsts.auth.xboxlive.com")?;
-    req = RequestBuilder::new()
-        .set_method(HTTPMethods::POST)
-        .set_route("/xsts/authorize")
-        .add_header("Accept: application/json")
-        .add_header("Content-Type: application/json")
-        .set_host("xsts.auth.xboxlive.com")
-        .set_content(&XSTSRequest::new(&xl_response.Token))
-        .build();
+    let reply = client.post(
+        "https://xsts.auth.xboxlive.com/xsts/authorize",
+        XSTSRequest::new(&xl_response.Token),
+        None,
+    )?;
+    info!("Sending request to XSTS!");
+    response = Response::from_slice(&reply)?;
 
-    client.client_write(&req)?;
-    len = client.client_read(&mut buf)?;
-    client.destroy()?;
-
-    response = Response::from_bytes(&buf[0..len])?;
     let xsts_response = serde_json::from_slice::<XboxLiveResponse>(&response.content)?;
     let (xsts_token, userhash) = (xsts_response.Token, &xsts_response.DisplayClaims.xui[0].uhs);
+    info!("Got response from XSTS!");
 
-    client = Client::new("api.minecraftservices.com")?;
+    drop(client);
+
+    let mut client =
+        PersistentClient::new(USER_AGENT, Some(json_headers), "api.minecraftservices.com")?;
+
     // login with xbox -> minecraft
-    req = RequestBuilder::new()
-        .set_method(HTTPMethods::POST)
-        .set_route("/authentication/login_with_xbox")
-        .set_host("api.minecraftservices.com")
-        .add_header("Accept: application/json")
-        .add_header("Content-Type: application/json")
-        .add_header("Connection: keep-alive")
-        .set_content(&MCLogin::new(userhash, &xsts_token))
-        .build();
-
-    client.client_write(&req)?;
-    client.client_read(&mut buf)?;
-    response = Response::from_bytes(&buf)?;
+    info!("Obtaining login info for minecraft!");
+    let reply = client.post(
+        "https://api.minecraftservices.com/authentication/login_with_xbox",
+        &MCLogin::new(&userhash, &xsts_token),
+        None,
+    )?;
+    response = Response::from_slice(&reply)?;
 
     let mc_response = serde_json::from_slice::<MCLoginResponse>(&response.content)?;
     let jwt = mc_response.access_token;
 
-    info!("Fetching minecraft profile!");
     // get minecraft profile
-    req = RequestBuilder::new()
-        .set_method(HTTPMethods::GET)
-        .add_header(&format!("Authorization: Bearer {}", jwt))
-        .add_header("Content-Type: application/json")
-        .add_header("Accept: application/json")
-        .set_route("/minecraft/profile")
-        .set_host("api.minecraftservices.com")
-        .build();
-    debug!("Request built!");
-    let wrlen = client.client_write(&req)?;
-    dbg!(wrlen);
-    let len = client.client_read(&mut buf)?;
-    dbg!(len);
-    println!("{}", std::str::from_utf8(&buf)?);
-    response = Response::from_bytes(&buf)?;
+    info!("Fetching minecraft profile!");
+    let bearer = format!("Bearer: {}", jwt);
+    let header = vec![("Authorization", bearer.as_str())]
+        .into_iter()
+        .collect::<HashMap<&str, &str>>();
+
+    let reply = client.get(
+        "https://api.minecraftservices.com/minecraft/profile",
+        Some(header),
+    )?;
+    response = Response::from_slice(&reply)?;
     let mc_profile = serde_json::from_slice::<MCProfile>(&response.content)?;
+    info!("Fetched minecraft profile: {}", mc_profile.name);
     Ok((jwt, mc_profile.id, mc_profile.name))
 }

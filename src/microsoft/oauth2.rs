@@ -1,5 +1,4 @@
-use crate::https::client::{HttpsClient, Methods};
-use crate::https::request::RequestBuilder;
+use crate::https::client::HttpsClient;
 use crate::https::response::Response;
 use log::info;
 use regex::Regex;
@@ -97,17 +96,17 @@ pub fn get_oauth2_code() -> Result<MsTokenResponse, Box<dyn Error>> {
     let access_token_post_form: String  = format!("client_id={}&scope=XboxLive.signin&redirect_uri=http://localhost:6636&grant_type=authorization_code&code={}&client_secret={}", settings.client_id, code, settings.client_secret);
     info!("Obtained code! Getting the access token");
 
-    let client = HttpsClient::new("Bigeon/0.0.2", None);
-    let headers: HashMap<&str, &str> = HashMap::new();
+    let mut client = HttpsClient::new("Bigeon/0.0.2", None);
+    let mut headers: HashMap<&str, &str> = HashMap::new();
     headers.insert("Content-Type", "application/x-www-form-urlencoded");
 
-    let req = RequestBuilder::new()
-        .http_method(Methods::POST)
-        .host("login.microsoftonline.com")
-        .content(access_token_post_form.into_bytes())
-        .headers(&headers)
-        .build();
-    let bytes = client.post(ACCESS_TOKEN_URL, req, Some(headers)).unwrap();
+    let bytes = client
+        .post(
+            ACCESS_TOKEN_URL,
+            access_token_post_form.into_bytes(),
+            Some(headers),
+        )
+        .unwrap();
     let response = Response::from_slice(&bytes).unwrap();
     let token_struct = serde_json::from_slice::<MsTokenResponse>(&response.content)?;
 

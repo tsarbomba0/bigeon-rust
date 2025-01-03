@@ -1,53 +1,53 @@
-use crate::discord::message::{
-    read_discord_reply, DiscordEmbed, DiscordError, DiscordMessage, MessageBuilder, Reply,
-};
-use crate::https::https_client::Client;
-use crate::https::request::{HTTPMethods, RequestBuilder};
+use crate::discord::message::{read_discord_reply, DiscordMessage, Reply};
+use crate::https::persistent_client::PersistentClient;
 use crate::https::response::Response;
+use std::collections::HashMap;
+use std::io::Error;
 use std::str;
 
-pub struct DiscordClient {
-    conn: Client,
-    token: String,
-    base_headers: Vec<String>,
+const DISCORD_USER_AGENT: &str = "DiscordBot (Bigeon, 0.0.2)";
+const DISCORD_API_URL: &str = "https://discord.com/api/v10";
+
+type HeaderMap<'a> = HashMap<&'a str, String>;
+
+pub struct DiscordClient<'a> {
+    conn: PersistentClient<'a>,
+    token: &'a str,
+    headers: HeaderMap<'a>,
 }
 
-impl DiscordClient {
-    pub fn new(token: &str) -> Self {
-        let mut base_headers = vec![
-            "User-Agent: DiscordBot (none, 0.0.1) Bigeon".to_string(),
-            "Content-Type: application/json".to_string(),
-        ];
-        let auth = format!("Authorization: Bot {}", token);
-        base_headers.push(auth);
+impl<'a> DiscordClient<'a> {
+    pub fn new(token: &'a str) -> Result<Self, Error> {
+        let token_string = format!("Bot {}", token);
+        let base_headers = vec![
+            ("Content-Type", "application/json".to_string()),
+            ("Authorization", token_string),
+        ]
+        .into_iter()
+        .collect::<HeaderMap<'a>>();
+        let conn = PersistentClient::new(DISCORD_USER_AGENT, "https://discord.com")?;
 
-        Self {
-            base_headers: base_headers.to_owned(),
-            token: token.to_string(),
-            conn: Client::new("discord.com").unwrap(),
-        }
+        Ok(Self {
+            token,
+            conn,
+            headers: base_headers,
+        })
     }
     pub fn send_message(
         &mut self,
         msg: DiscordMessage,
-        channel_id: &str,
+        channel_id: &'a str,
     ) -> Result<Box<dyn Reply>, Box<dyn std::error::Error>> {
-        let mut buf: [u8; 4096] = [0; 4096];
-        let req = RequestBuilder::new()
-            .set_method(HTTPMethods::POST)
-            .set_host(&self.conn.server_name)
-            .add_many_headers(&self.base_headers)
-            .set_route(&format!("/api/v10/channels/{}/messages", channel_id))
-            .set_content(&msg.to_vec()?)
-            .build();
+        let msg_bytes = msg.to_vec()?;
+        let url = format!("{}/channels/{}/messages", DISCORD_API_URL, channel_id);
+        let reply = match self.conn.post(&url) {
+            Ok(mut r) => r.content(&msg_bytes).headers(&self.headers).execute()?,
+            Err(e) => panic!("{}", e),
+        };
+        let resp = Response::from_slice(&reply)?;
 
-        self.conn.client_write(&req)?;
-        let len = self.conn.client_read(&mut buf)?;
-
-        let http_response = Response::from_bytes(&buf[0..len])?;
-
-        println!("{:?}", http_response);
-        let discord_response = str::from_utf8(&http_response.content)?;
+        println!("{:#?}", resp);
+        let discord_response = str::from_utf8(&resp.content)?;
         read_discord_reply(discord_response)
     }
 }

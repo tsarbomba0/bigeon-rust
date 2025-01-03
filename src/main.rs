@@ -35,10 +35,10 @@ fn main() {
         .map(|()| log::set_max_level(LevelFilter::Debug))
         .unwrap();
 
-    let mut cl = DiscordClient::new("");
-    let message = MessageBuilder::new().content("Ahaha!").build();
+    //let mut cl = DiscordClient::new("");
+    //let message = MessageBuilder::new().content("Ahaha!").build();
 
-    cl.send_message(message, "1296137217604849704").unwrap();
+    //cl.send_message(message, "1296137217604849704").unwrap();
 
     let token_struct = get_oauth2_code().unwrap();
     let (jwl, uuid, name) = login_to_minecraft(&token_struct.access_token).unwrap();

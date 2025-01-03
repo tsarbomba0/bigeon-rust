@@ -34,14 +34,7 @@ impl<'b> HttpsClient<'b> {
 
         Self { headers }
     }
-    fn request(
-        &self,
-        method: Methods,
-        url: &str,
-        content: Option<Vec<u8>>,
-        headers: Option<HeaderMap>,
-    ) -> io::Result<Vec<u8>> {
-        println!("{}", url);
+    fn request(&mut self, method: Methods, url: &str) -> RequestBuilder {
         let url_parts = Url::new(url).unwrap();
 
         let mut req = RequestBuilder::new();
